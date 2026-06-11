@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-06-11T08:53:38+00:00",
+  "storage_decision": {
+    "format": "json",
+    "reason": "Current public inputs are snapshot-sized and consumed by the browser app as JSON. SQLite should be introduced later if we store large relational inputs such as player-match appearances, shared minutes, or event-level tables."
+  },
+  "files": [
+    "worldcup_2026.json",
+    "recent_international_results.json",
+    "public_data.js"
+  ],
+  "sources": {
+    "openfootball_worldcup_json": {
+      "name": "openfootball/worldcup.json",
+      "repo": "https://github.com/openfootball/worldcup.json.git",
+      "raw": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json",
+      "path": "2026/worldcup.json",
+      "license": "Public GitHub repository; check upstream repository for current license terms.",
+      "model_use": "Tournament structure and dated World Cup context.",
+      "fetched_at": "2026-06-11T08:53:38+00:00",
+      "fetch": {
+        "method": "http_raw",
+        "url": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json"
+      }
+    },
+    "international_results": {
+      "name": "martj42/international_results",
+      "repo": "https://github.com/martj42/international_results.git",
+      "raw": "https://raw.githubusercontent.com/martj42/international_results/master/results.csv",
+      "path": "results.csv",
+      "license": "Public GitHub repository; check upstream repository for current license terms.",
+      "model_use": "Raw international match results for Recent National Team Performance.",
+      "fetched_at": "2026-06-11T08:53:38+00:00",
+      "fetch": {
+        "method": "http_raw",
+        "url": "https://raw.githubusercontent.com/martj42/international_results/master/results.csv"
+      }
+    }
+  }
+}
