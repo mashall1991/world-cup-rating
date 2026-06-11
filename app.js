@@ -745,16 +745,31 @@ async function loadLiveSchedule() {
     renderSchedule();
     renderLiveBanner();
 
-    // 当天有进行中、即将开赛或刚结束的比赛时持续刷新状态与比分
-    const today = beijingParts(new Date().toISOString())?.date;
-    const shouldPollToday = (appState.liveSchedule?.matches ?? [])
-      .map(liveMatchToLocal)
-      .some((match) => match.date === today && ["IN_PLAY", "PAUSED", "SCHEDULED", "TIMED", "FINISHED"].includes(match.status));
+    // 自适应轮询：根据当前比赛状态动态决定下次刷新间隔，
+    // 保证“即将开赛 → 进行中”的状态翻转及比分变化都能被及时拉到。
     clearTimeout(appState.livePollTimer);
-    if (shouldPollToday) {
-      appState.livePollTimer = setTimeout(loadLiveSchedule, 60000);
+    const nextPollDelay = getLivePollDelay();
+    if (nextPollDelay) {
+      appState.livePollTimer = setTimeout(loadLiveSchedule, nextPollDelay);
     }
   }
+}
+
+// 轮询节奏：
+// - 有比赛进行中/中场 → 30s，尽量贴近实时比分
+// - 今日有即将开赛或刚结束的比赛 → 60s，及时翻转状态
+// - 其余情况 → 10 分钟心跳，等待新一天的比赛进入临场窗口
+function getLivePollDelay() {
+  if (!LINEUP_API.available) return 0;
+  const today = beijingParts(new Date().toISOString())?.date;
+  const matches = (appState.liveSchedule?.matches ?? []).map(liveMatchToLocal);
+  const hasLive = matches.some((match) => ["IN_PLAY", "PAUSED"].includes(match.status));
+  if (hasLive) return 30000;
+  const activeToday = matches.some(
+    (match) => match.date === today && ["SCHEDULED", "TIMED", "FINISHED"].includes(match.status)
+  );
+  if (activeToday) return 60000;
+  return 600000;
 }
 
 function renderLiveBanner() {
