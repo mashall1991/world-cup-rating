@@ -1483,7 +1483,9 @@ async function resolveCompareLineup(col, team, token) {
   return null;
 }
 
-// 用实时首发重算评分：把出现在首发名单里的球员权重设为 1，其余降为替补 0.2。
+// 用实时首发重算评分：实际首发权重设为 1，其余降为替补（保留深度信号）。
+// 然后按建模脚本同样的口径，用新的出场权重对全体球员加权，重算
+// environment / age / cohesion 三个维度（performance 是球队层面战绩，与首发无关，保持不变）。
 // 保护逻辑：实时名单异常或与模型库匹配过少时返回 null，调用方据此回退到预测评分。
 function recomputeWithLineup(team, lineup) {
   const players = Array.isArray(team.players) ? team.players : [];
@@ -1502,14 +1504,83 @@ function recomputeWithLineup(team, lineup) {
     const isStarter =
       starterKeys.has(normalizeTeamKey(person.nameEn)) || starterKeys.has(normalizeTeamKey(person.name));
     if (isStarter) matched += 1;
-    return { ...person, appearanceWeight: isStarter ? 1 : 0.2 };
+    // 实际首发=1.0；其余取原权重与 0.55 的较小值（被弃用的预测主力降为可用替补，深替仍 0.2）
+    const weight = isStarter ? 1 : Math.min(Number(person.appearanceWeight ?? 0.2), 0.55);
+    return { ...person, appearanceWeight: weight };
   });
 
   // 匹配过少说明命名对不上，强行改会把已知主力全判替补，得出离谱评分 → 放弃修正
   if (matched < 8) return null;
 
-  const adjusted = withScores({ ...team, players: adjustedPlayers });
+  const dimensions = {
+    ...team.dimensions,
+    environment: weightedAverageBy(adjustedPlayers, "environmentScore", team.dimensions.environment),
+    age: weightedAverageBy(adjustedPlayers, "ageScore", team.dimensions.age),
+    cohesion: computeCohesionScore(adjustedPlayers, team.dimensions.cohesion)
+  };
+  const environmentBreakdown = {
+    leagueStrength: weightedAverageBy(adjustedPlayers, "leagueStrength", team.environmentBreakdown.leagueStrength),
+    clubCompetitiveness: weightedAverageBy(adjustedPlayers, "clubCompetitiveness", team.environmentBreakdown.clubCompetitiveness),
+    roleStability: weightedAverageBy(adjustedPlayers, "roleStability", team.environmentBreakdown.roleStability)
+  };
+
+  const adjusted = withScores({ ...team, players: adjustedPlayers, dimensions, environmentBreakdown });
   return { ...adjusted, rank: team.rank, lineupMatched: matched };
+}
+
+// 按出场权重加权球员某字段（移植自建模脚本 weighted_average）。
+// 字段覆盖不足（如默认样例队缺少该字段）时回退到原维度值，避免算出偏差。
+function weightedAverageBy(players, key, fallback) {
+  let total = 0;
+  let weight = 0;
+  let covered = 0;
+  players.forEach((person) => {
+    const value = Number(person[key]);
+    const personWeight = Number(person.appearanceWeight ?? 0);
+    if (Number.isFinite(value) && personWeight > 0) {
+      total += value * personWeight;
+      weight += personWeight;
+      covered += personWeight;
+    }
+  });
+  const allWeight = players.reduce((sum, person) => sum + Number(person.appearanceWeight ?? 0), 0);
+  if (!weight || (allWeight && covered / allWeight < 0.6)) return fallback;
+  return clamp(total / weight);
+}
+
+// 阵容协同经验（移植自建模脚本 calculate_cohesion）：基于首发+轮换两两配对，
+// 用国家队同框（受同代上限约束的共同出场场次代理）与俱乐部/联赛熟悉度估算。
+function computeCohesionScore(players, fallback) {
+  const pool = players.filter((person) => Number(person.appearanceWeight ?? 0) >= 0.55);
+  if (pool.length < 2 || pool.some((person) => !Number.isFinite(Number(person.caps)))) return fallback;
+
+  let weightedPairs = 0;
+  let national = 0;
+  let club = 0;
+  for (let i = 0; i < pool.length; i += 1) {
+    for (let j = i + 1; j < pool.length; j += 1) {
+      const a = pool[i];
+      const b = pool[j];
+      const pairWeight = Number(a.appearanceWeight) * Number(b.appearanceWeight);
+      weightedPairs += pairWeight;
+
+      const yearsOverlap = Math.max(0.5, Math.min(Number(a.age), Number(b.age)) - 19);
+      const maxSharedCaps = yearsOverlap * 9;
+      const capsOverlap = Math.min(Number(a.caps), Number(b.caps), maxSharedCaps);
+      national += pairWeight * Math.min(100, (Math.log1p(capsOverlap) / Math.log1p(90)) * 100);
+
+      if (a.clubEn && a.clubEn === b.clubEn) {
+        club += pairWeight * 100;
+      } else if (a.leagueCode && a.leagueCode === b.leagueCode && a.leagueCode !== "UNK") {
+        club += pairWeight * 20;
+      }
+    }
+  }
+  if (!weightedPairs) return fallback;
+  const nationalScore = national / weightedPairs;
+  const clubScore = club / weightedPairs;
+  const historicalScore = nationalScore * 0.4;
+  return clamp(nationalScore * 0.75 + clubScore * 0.2 + historicalScore * 0.05);
 }
 
 function getRecentMatchRows() {
