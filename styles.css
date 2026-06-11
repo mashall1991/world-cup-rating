@@ -823,6 +823,8 @@ th:last-child {
 }
 
 .lineup-dialog {
+  display: flex;
+  flex-direction: column;
   width: min(760px, calc(100vw - 28px));
   max-height: min(760px, calc(100vh - 28px));
   padding: 0;
@@ -831,6 +833,19 @@ th:last-child {
   background: var(--surface);
   color: var(--ink);
   box-shadow: 0 28px 70px rgba(23, 32, 27, 0.22);
+}
+
+/* 头部固定，内容区随内容增多滚动（避免首发名单撑破弹窗） */
+.lineup-dialog .dialog-head {
+  flex: 0 0 auto;
+}
+
+.lineup-grid,
+.compare-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .lineup-dialog::backdrop {
@@ -1198,6 +1213,81 @@ th:last-child {
   text-align: right;
 }
 
+.compare-adjust-note {
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(31, 122, 77, 0.12);
+  color: #1f7a4d;
+  font-size: 12px;
+  text-align: center;
+  justify-self: center;
+}
+
+/* 首发阵容对比 */
+.compare-lineups {
+  display: grid;
+  gap: 10px;
+}
+
+.compare-lineup-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.compare-lineup-col {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbf8;
+}
+
+.compare-lineup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.compare-lineup-head strong {
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.compare-lineup-head small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.compare-lineup-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compare-lineup-item {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.compare-lineup-item .cl-pos {
+  color: var(--muted);
+}
+
+.compare-lineup-item.placeholder {
+  opacity: 0.55;
+}
+
 .match-row.clickable {
   cursor: pointer;
 }
@@ -1412,6 +1502,20 @@ th:last-child {
 
   .compare-head .compare-score {
     font-size: 20px;
+  }
+
+  .compare-lineup-grid {
+    gap: 8px;
+  }
+
+  .compare-lineup-col {
+    padding: 8px 10px;
+  }
+
+  .compare-lineup-item {
+    grid-template-columns: 42px 1fr;
+    gap: 6px;
+    font-size: 11px;
   }
 
   .compare-row {

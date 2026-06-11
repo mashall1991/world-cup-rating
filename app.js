@@ -1301,11 +1301,37 @@ function findTeamByName(name) {
 }
 
 function openCompare(teamA, teamB, match) {
+  const token = (appState.compareToken = (appState.compareToken ?? 0) + 1);
+
   els.compareTitle.textContent = `${teamA.flag} ${teamA.name} vs ${teamB.flag} ${teamB.name}`;
   els.compareMeta.textContent = [match.date, match.time !== "--" ? match.time : "", match.meta]
     .filter(Boolean)
     .join(" · ");
   els.compareBody.replaceChildren();
+
+  // 评分对比区（实时首发到手后可被重新绘制）
+  const scoreSection = document.createElement("div");
+  scoreSection.className = "compare-score-section";
+  els.compareBody.append(scoreSection);
+  renderCompareScores(scoreSection, teamA, teamB, "");
+
+  // 首发阵容对比区（先用本地预测，再异步刷新为实时名单）
+  const lineups = buildCompareLineups(teamA, teamB);
+  els.compareBody.append(lineups.element);
+
+  renderEmoji();
+
+  if (typeof els.compareDialog.showModal === "function") {
+    els.compareDialog.showModal();
+  } else {
+    els.compareDialog.setAttribute("open", "");
+  }
+
+  hydrateCompare(scoreSection, lineups, teamA, teamB, token);
+}
+
+function renderCompareScores(container, teamA, teamB, noteText) {
+  container.replaceChildren();
 
   const head = document.createElement("div");
   head.className = "compare-head";
@@ -1320,13 +1346,20 @@ function openCompare(teamA, teamB, match) {
       <small>#${teamB.rank} · ${escapeHtml(getTier(teamB.finalScore))}</small>
     </div>
   `;
-  els.compareBody.append(head);
+  container.append(head);
+
+  if (noteText) {
+    const note = document.createElement("div");
+    note.className = "compare-adjust-note";
+    note.textContent = noteText;
+    container.append(note);
+  }
 
   const rows = [
     ["综合得分", teamA.finalScore, teamB.finalScore, "#17202b"],
     ["基础评分", teamA.baseScore, teamB.baseScore, "#3d3d3d"],
     ...dimensionConfig.map(([key, label, weight, color]) => [
-      `${label} ${weight}`,
+      `${label} ${weight}`.trim(),
       teamA.dimensions[key],
       teamB.dimensions[key],
       color
@@ -1344,16 +1377,139 @@ function openCompare(teamA, teamB, match) {
       <div class="bar-track"><div class="bar-fill" style="width: ${clamp(valueB)}%; --bar-color: ${color}"></div></div>
       <strong${leadA ? "" : ' class="lead"'}>${formatScore(valueB)}</strong>
     `;
-    els.compareBody.append(row);
+    container.append(row);
+  });
+}
+
+function buildCompareLineups(teamA, teamB) {
+  const element = document.createElement("section");
+  element.className = "compare-lineups";
+
+  const heading = document.createElement("div");
+  heading.className = "section-heading";
+  heading.innerHTML = `<h3>首发阵容</h3><span>实时优先 · 不可用回退本地</span>`;
+  element.append(heading);
+
+  const grid = document.createElement("div");
+  grid.className = "compare-lineup-grid";
+  const A = buildCompareLineupColumn(teamA);
+  const B = buildCompareLineupColumn(teamB);
+  grid.append(A.element, B.element);
+  element.append(grid);
+
+  return { element, columns: { A, B } };
+}
+
+function buildCompareLineupColumn(team) {
+  const element = document.createElement("div");
+  element.className = "compare-lineup-col";
+
+  const head = document.createElement("div");
+  head.className = "compare-lineup-head";
+  head.innerHTML = `<strong>${escapeHtml(`${team.flag} ${team.name}`)}</strong><small></small>`;
+
+  const listEl = document.createElement("ol");
+  listEl.className = "compare-lineup-list";
+
+  element.append(head, listEl);
+
+  const col = { element, listEl, metaEl: head.querySelector("small"), team };
+  renderCompareLineupList(listEl, team.startingXI ?? []);
+  col.metaEl.textContent = "本地预测";
+  return col;
+}
+
+function renderCompareLineupList(listEl, lineup) {
+  listEl.replaceChildren();
+  (lineup ?? []).forEach((item) => {
+    const li = document.createElement("li");
+    li.className = `compare-lineup-item${item.placeholder ? " placeholder" : ""}`;
+    li.innerHTML = `
+      <span class="cl-pos">${escapeHtml(item.position)}</span>
+      <span class="cl-name">${escapeHtml(item.name)}</span>
+    `;
+    listEl.append(li);
+  });
+}
+
+// 异步拉两队实时首发：成功则替换显示并按真实首发重算评分，失败回退缓存/本地
+async function hydrateCompare(scoreSection, lineups, teamA, teamB, token) {
+  if (!LINEUP_API.available) return;
+
+  const [liveA, liveB] = await Promise.all([
+    resolveCompareLineup(lineups.columns.A, teamA, token),
+    resolveCompareLineup(lineups.columns.B, teamB, token)
+  ]);
+  if (token !== appState.compareToken || !els.compareDialog.open) return;
+
+  const adjA = liveA ? recomputeWithLineup(teamA, liveA) : null;
+  const adjB = liveB ? recomputeWithLineup(teamB, liveB) : null;
+  if (!adjA && !adjB) return;
+
+  const noteParts = [
+    adjA ? `${teamA.name} 匹配 ${adjA.lineupMatched} 人` : "",
+    adjB ? `${teamB.name} 匹配 ${adjB.lineupMatched} 人` : ""
+  ].filter(Boolean);
+  renderCompareScores(scoreSection, adjA ?? teamA, adjB ?? teamB, `已按实时首发修正评分 · ${noteParts.join(" · ")}`);
+  renderEmoji();
+}
+
+async function resolveCompareLineup(col, team, token) {
+  col.metaEl.textContent = "获取实时名单…";
+  let live = null;
+  try {
+    live = await tryLiveLineup(team);
+  } catch {
+    live = null;
+  }
+  if (token !== appState.compareToken || !els.compareDialog.open) return null;
+
+  if (live) {
+    renderCompareLineupList(col.listEl, live);
+    col.metaEl.textContent = "实时名单";
+    saveLineupCache(team.id, live);
+    renderEmoji();
+    return live;
+  }
+
+  const cached = readLineupCache(team.id);
+  if (cached?.lineup?.length) {
+    renderCompareLineupList(col.listEl, cached.lineup);
+    col.metaEl.textContent = "缓存名单";
+    renderEmoji();
+  } else {
+    col.metaEl.textContent = "本地预测";
+  }
+  return null;
+}
+
+// 用实时首发重算评分：把出现在首发名单里的球员权重设为 1，其余降为替补 0.2。
+// 保护逻辑：实时名单异常或与模型库匹配过少时返回 null，调用方据此回退到预测评分。
+function recomputeWithLineup(team, lineup) {
+  const players = Array.isArray(team.players) ? team.players : [];
+  if (!players.length) return null;
+
+  const starterKeys = new Set(
+    (lineup ?? [])
+      .filter((item) => !item.placeholder)
+      .map((item) => normalizeTeamKey(item.name))
+      .filter(Boolean)
+  );
+  if (starterKeys.size < 8) return null;
+
+  let matched = 0;
+  const adjustedPlayers = players.map((person) => {
+    const isStarter =
+      starterKeys.has(normalizeTeamKey(person.nameEn)) || starterKeys.has(normalizeTeamKey(person.name));
+    if (isStarter) matched += 1;
+    return { ...person, appearanceWeight: isStarter ? 1 : 0.2 };
   });
 
-  renderEmoji();
+  // 匹配过少说明命名对不上，强行改会把已知主力全判替补，得出离谱评分 → 放弃修正
+  if (matched < 8) return null;
 
-  if (typeof els.compareDialog.showModal === "function") {
-    els.compareDialog.showModal();
-  } else {
-    els.compareDialog.setAttribute("open", "");
-  }
+  const adjusted = withScores({ ...team, players: adjustedPlayers });
+  return { ...adjusted, rank: team.rank, lineupMatched: matched };
 }
 
 function getRecentMatchRows() {
