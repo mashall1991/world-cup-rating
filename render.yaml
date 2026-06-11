@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: worldcup-strength
+    runtime: node
+    plan: free
+    buildCommand: ""
+    startCommand: node server.js
+    healthCheckPath: /
+    envVars:
+      - key: FOOTBALL_DATA_TOKEN
+        sync: false
