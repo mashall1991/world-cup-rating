@@ -334,6 +334,14 @@ const scoreComponentConfig = [
   ["ageLoad", "年龄/赛程耐久", 3, "#b64a3a"]
 ];
 
+// 两队对比弹窗按四个维度展开（与详情页分区标题一致）
+const dimensionConfig = [
+  ["environment", "竞技环境", "", "#1f7a4d"],
+  ["performance", "近期表现", "", "#315f9f"],
+  ["cohesion", "协同经验", "", "#7b2f35"],
+  ["age", "年龄结构", "", "#b64a3a"]
+];
+
 const tournamentStageConfig = [
   ["group", "小组赛", 1],
   ["round32", "32强", 1.35],

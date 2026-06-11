@@ -1223,12 +1223,17 @@ th:last-child {
     transform: translateY(calc(100% - 148px));
     transition: transform 0.28s ease;
     overflow: hidden;
+    /* 折叠态：吃掉浮层范围内的触摸手势，避免穿透到下层球队列表 */
+    touch-action: none;
   }
 
   .detail-panel.expanded {
     transform: translateY(0);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    /* 展开态：允许浮层内部纵向滚动，并阻止滚动链传导到页面 */
+    touch-action: pan-y;
+    overscroll-behavior: contain;
   }
 
   .detail-panel.dragging {
@@ -1242,18 +1247,26 @@ th:last-child {
     top: 0;
     z-index: 2;
     width: 100%;
-    padding: 12px 0 8px;
+    /* 触摸目标加大到 ≥44px，并向上扩展更易在折叠态点到 */
+    min-height: 48px;
+    padding: 18px 0 14px;
+    margin-top: -4px;
     border: none;
     background: var(--surface);
     cursor: grab;
     touch-action: none;
   }
 
+  .sheet-handle:active span {
+    background: #9fb0a4;
+  }
+
   .sheet-handle span {
-    width: 46px;
-    height: 5px;
+    width: 56px;
+    height: 6px;
     border-radius: 3px;
     background: #c3cfc6;
+    transition: background 0.15s ease;
   }
 
   /* 窄屏关键球员改为卡片，不再用宽表格 */
