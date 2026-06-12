@@ -328,7 +328,8 @@ const COEFFICIENT_STORAGE_KEY = "worldCupStrengthCoefficients";
 const STAGE_LOAD_STORAGE_KEY = "worldCupStrengthStageLoad";
 const FINISHED_HOME_RESULTS_STORAGE_KEY = "worldCupFinishedPredictionResults";
 const ODDS_STORAGE_KEY = "wcOddsCache";
-const ODDS_STORAGE_VERSION = 2;
+const ODDS_STORAGE_VERSION = 3;
+const ODDS_DEBUG_STORAGE_KEY = "wcOddsDebug";
 
 const scoreComponentConfig = [
   ["squadQuality", "阵容质量", 45, "#1f7a4d"],
@@ -405,6 +406,7 @@ const DRAW_PREDICTION_THRESHOLD = 1;
 const publicData = loadPublicData();
 const clubPlayerStats = loadClubPlayerStats();
 const clubPlayerStatsIndex = buildClubPlayerStatsIndex(clubPlayerStats);
+const oddsDebugLogKeys = new Set();
 
 // ==== 球员中文名映射(data/public/player_name_zh.js,源自官方名单 PDF)====
 function loadPlayerNameZh() {
@@ -640,12 +642,24 @@ async function loadOdds() {
   const cached = readOddsCache();
   if (isFreshOddsCache(cached)) {
     appState.odds = { ...cached, source: cached.source ?? "cache" };
+    logOddsEvent("使用浏览器缓存", {
+      fetchedAt: cached.fetchedAt,
+      matches: cached.matches?.length ?? 0,
+      remainingSeconds: Math.round(getOddsCacheRemainingMs(cached) / 1000),
+      nextRefreshSeconds: Math.round(getActiveOddsRefreshMs() / 1000)
+    });
     scheduleNextOddsLoad(getOddsCacheRemainingMs(cached));
     return;
   }
 
   appState.oddsLoading = true;
   try {
+    logOddsEvent("请求赔率接口", {
+      endpoint: ODDS_API.endpoint,
+      nextRefreshSeconds: Math.round(getActiveOddsRefreshMs() / 1000),
+      cachedAt: cached?.fetchedAt ?? null,
+      cachedMatches: cached?.matches?.length ?? 0
+    });
     const response = await fetch(`${ODDS_API.endpoint}?ts=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
@@ -654,8 +668,20 @@ async function loadOdds() {
       fetchedAt: new Date().toISOString(),
       matches: Array.isArray(data) ? data : data?.matches ?? []
     };
+    logOddsEvent("赔率接口返回", {
+      source: appState.odds.source,
+      matches: appState.odds.matches.length,
+      paging: data?.paging ?? null,
+      errors: data?.errors ?? null,
+      canadaBosniaCandidates: summarizeOddsCandidates(appState.odds.matches, "Canada", "Bosnia & Herzegovina")
+    });
     writeOddsCache(appState.odds);
-  } catch {
+  } catch (error) {
+    logOddsEvent("赔率接口失败", {
+      message: String(error?.message ?? error),
+      fallbackCachedAt: cached?.fetchedAt ?? null,
+      fallbackCachedMatches: cached?.matches?.length ?? 0
+    }, "warn");
     appState.odds = appState.odds?.matches?.length
       ? appState.odds
       : cached?.matches?.length ? { ...cached, source: cached.source ?? "cache-stale" } : null;
@@ -826,6 +852,17 @@ function getMatchOdds(match) {
   const team1Key = normalizeTeamKey(match.team1);
   const team2Key = normalizeTeamKey(match.team2);
   if (!team1Key || !team2Key) return null;
+  const debug = shouldLogOddsMatch(match);
+  if (debug) {
+    logOddsMatchOnce(match, "开始匹配", {
+      match: summarizeMatchForOdds(match),
+      oddsSource: appState.odds?.source ?? null,
+      oddsFetchedAt: appState.odds?.fetchedAt ?? null,
+      oddsCount: oddsMatches.length,
+      targetKeys: { team1Key, team2Key },
+      candidateSummary: summarizeOddsCandidates(oddsMatches, match.team1, match.team2)
+    });
+  }
 
   for (const oddsMatch of oddsMatches) {
     const sameFixture = match.apiFootballFixtureId && getOddsFixtureId(oddsMatch) === Number(match.apiFootballFixtureId);
@@ -838,20 +875,126 @@ function getMatchOdds(match) {
     if (!sameFixture && !sameOrder && !reverseOrder) continue;
 
     const h2h = getFirstH2hMarket(oddsMatch);
-    if (!h2h) continue;
+    if (!h2h) {
+      if (debug) {
+        logOddsMatchOnce(match, `命中候选但没有H2H市场:${getOddsFixtureId(oddsMatch) ?? "no-fixture"}`, {
+          oddsMatch: summarizeOddsMatch(oddsMatch),
+          bookmakers: (oddsMatch.bookmakers ?? []).map((bookmaker) => ({
+            name: bookmaker.name ?? bookmaker.title ?? bookmaker.key ?? "",
+            bets: (bookmaker.bets ?? []).map((bet) => ({ id: bet.id, name: bet.name, values: bet.values?.length ?? 0 })),
+            markets: (bookmaker.markets ?? []).map((market) => ({ key: market.key, outcomes: market.outcomes?.length ?? 0 }))
+          }))
+        }, "warn");
+      }
+      continue;
+    }
     const homePrice = h2h.apiFootball ? getOutcomePrice(h2h, "Home") : getOutcomePrice(h2h, homeName);
     const awayPrice = h2h.apiFootball ? getOutcomePrice(h2h, "Away") : getOutcomePrice(h2h, awayName);
     const drawPrice = getOutcomePrice(h2h, "Draw");
-    return {
+    const odds = {
       home: sameFixture || sameOrder ? homePrice : awayPrice,
       draw: drawPrice,
       away: sameFixture || sameOrder ? awayPrice : homePrice,
       bookmaker: h2h.bookmaker,
       updatedAt: oddsMatch.update ?? oddsMatch.bookmakers?.[0]?.last_update ?? oddsMatch.commence_time
     };
+    if (debug) {
+      logOddsMatchOnce(match, "匹配成功", {
+        oddsMatch: summarizeOddsMatch(oddsMatch),
+        h2h,
+        renderedOdds: odds
+      });
+    }
+    return odds;
   }
 
+  if (debug) {
+    logOddsMatchOnce(match, "未匹配到赔率", {
+      match: summarizeMatchForOdds(match),
+      oddsSource: appState.odds?.source ?? null,
+      oddsFetchedAt: appState.odds?.fetchedAt ?? null,
+      oddsCount: oddsMatches.length,
+      candidateSummary: summarizeOddsCandidates(oddsMatches, match.team1, match.team2)
+    }, "warn");
+  }
   return null;
+}
+
+function shouldLogOddsMatch(match) {
+  if (isOddsDebugEnabled()) return true;
+  const keys = [normalizeTeamKey(match?.team1), normalizeTeamKey(match?.team2)];
+  return keys.includes("canada") && keys.includes("bosnia and herzegovina");
+}
+
+function isOddsDebugEnabled() {
+  try {
+    return localStorage.getItem(ODDS_DEBUG_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function logOddsEvent(message, payload = {}, level = "info") {
+  const logger = level === "warn" ? console.warn : console.info;
+  logger(`[odds] ${message}`, payload);
+}
+
+function logOddsMatchOnce(match, step, payload = {}, level = "info") {
+  const key = [
+    normalizeTeamKey(match?.team1),
+    normalizeTeamKey(match?.team2),
+    appState.odds?.fetchedAt ?? "no-odds",
+    appState.odds?.matches?.length ?? 0,
+    step
+  ].join("|");
+  if (oddsDebugLogKeys.has(key)) return;
+  oddsDebugLogKeys.add(key);
+  logOddsEvent(`${match?.team1 ?? "--"} vs ${match?.team2 ?? "--"} · ${step}`, payload, level);
+}
+
+function summarizeMatchForOdds(match) {
+  return {
+    date: match?.date,
+    time: match?.time,
+    status: match?.status,
+    team1: match?.team1,
+    team2: match?.team2,
+    team1Key: normalizeTeamKey(match?.team1),
+    team2Key: normalizeTeamKey(match?.team2),
+    apiFootballFixtureId: match?.apiFootballFixtureId ?? null,
+    finished: isMatchFinished(match)
+  };
+}
+
+function summarizeOddsCandidates(oddsMatches, teamA, teamB) {
+  const targetKeys = [normalizeTeamKey(teamA), normalizeTeamKey(teamB)];
+  return (oddsMatches ?? [])
+    .map(summarizeOddsMatch)
+    .filter((item) => {
+      const keys = [item.homeKey, item.awayKey];
+      return targetKeys.some((key) => keys.includes(key)) ||
+        keys.some((key) => key.includes("canada") || key.includes("bosnia"));
+    })
+    .slice(0, 12);
+}
+
+function summarizeOddsMatch(oddsMatch) {
+  const homeName = getOddsHomeName(oddsMatch);
+  const awayName = getOddsAwayName(oddsMatch);
+  return {
+    fixtureId: getOddsFixtureId(oddsMatch),
+    fixtureDate: oddsMatch?.fixture?.date ?? oddsMatch?.fixture_date ?? null,
+    homeName,
+    awayName,
+    homeKey: normalizeTeamKey(homeName),
+    awayKey: normalizeTeamKey(awayName),
+    bookmakers: (oddsMatch?.bookmakers ?? []).length,
+    firstBookmaker: oddsMatch?.bookmakers?.[0]?.name ?? oddsMatch?.bookmakers?.[0]?.title ?? null,
+    betNames: (oddsMatch?.bookmakers ?? [])
+      .flatMap((bookmaker) => bookmaker.bets ?? [])
+      .slice(0, 5)
+      .map((bet) => `${bet.id ?? ""}:${bet.name ?? ""}`)
+  };
 }
 
 function getOddsFixtureId(oddsMatch) {

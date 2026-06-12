@@ -1,0 +1,1 @@
+window.WORLD_CUP_PLAYER_NAME_ZH = window.WORLD_CUP_PLAYER_NAME_ZH || [];
