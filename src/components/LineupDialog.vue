@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch } from "vue";
-import { LINEUP_API, tryLiveLineup, saveLineupCache, readLineupCache, formatGeneratedAt } from "../lib/engine.js";
+import { LINEUP_API, ensureTeamLineup, readLineupCache, formatGeneratedAt } from "../lib/engine.js";
 import { ui, closeLineup } from "../lib/ui.js";
 
 const lineup = ref([]);
@@ -14,25 +14,28 @@ watch(
     const team = ui.lineup.team;
     const token = ++requestToken;
     lineup.value = team.startingXI ?? [];
-    sourceLabel.value = LINEUP_API.available ? "本地预测 · 正在尝试获取实时名单…" : "本地预测";
-
-    if (!LINEUP_API.available) return;
-    const live = await tryLiveLineup(team).catch(() => null);
-    if (token !== requestToken || !ui.lineup.open) return;
-
-    if (live) {
-      lineup.value = live;
-      sourceLabel.value = "实时名单 · API-Football";
-      saveLineupCache(team.id, live);
-      return;
-    }
     const cached = readLineupCache(team.id);
     if (cached?.lineup?.length) {
       lineup.value = cached.lineup;
       sourceLabel.value = `缓存名单 · ${formatGeneratedAt(cached.savedAt)}`;
-    } else {
-      sourceLabel.value = "本地预测（实时名单暂不可用）";
+      void ensureTeamLineup(team);
+      return;
     }
+
+    sourceLabel.value = LINEUP_API.available ? "本地预测 · 正在尝试获取实时名单…" : "本地预测";
+    if (!LINEUP_API.available) return;
+
+    const result = await ensureTeamLineup(team).catch(() => null);
+    if (token !== requestToken || !ui.lineup.open) return;
+
+    if (result?.lineup?.length) {
+      lineup.value = result.lineup;
+      sourceLabel.value = result.source === "cache"
+        ? `缓存名单 · ${formatGeneratedAt(result.savedAt)}`
+        : "实时名单 · API-Football";
+      return;
+    }
+    sourceLabel.value = "本地预测（实时名单暂不可用）";
   }
 );
 </script>

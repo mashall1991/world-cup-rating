@@ -402,6 +402,71 @@ const publicData = loadPublicData();
 const clubPlayerStats = loadClubPlayerStats();
 const clubPlayerStatsIndex = buildClubPlayerStatsIndex(clubPlayerStats);
 
+// ==== 球员中文名映射(data/public/player_name_zh.js,源自官方名单 PDF)====
+function loadPlayerNameZh() {
+  return Array.isArray(window.WORLD_CUP_PLAYER_NAME_ZH) ? window.WORLD_CUP_PLAYER_NAME_ZH : [];
+}
+
+// 为每个 [拉丁名, 中文名] 派生别名:全名、倒序、token 排序拼接、
+// 首字母+姓("S. McTominay",姓含空格时同时生成去空格变体)、唯一姓氏。
+// 不同球员撞键的别名直接弃用,避免张冠李戴。
+function sortedConcatKey(tokens) {
+  return [...tokens].sort().join("");
+}
+
+function buildPlayerNameZhIndex(rows) {
+  const index = new Map();
+  const ambiguous = new Set();
+  const put = (key, zh) => {
+    if (!key) return;
+    if (index.has(key) && index.get(key) !== zh) {
+      ambiguous.add(key);
+      return;
+    }
+    index.set(key, zh);
+  };
+  rows.forEach(([en, zh]) => {
+    const key = normalizeAscii(en);
+    const tokens = key.split(" ").filter(Boolean);
+    put(key, zh);
+    if (tokens.length >= 2) {
+      put([...tokens].reverse().join(" "), zh);
+      put(sortedConcatKey(tokens), zh);
+      const rest = tokens.slice(1);
+      const variants = new Set([rest.join(" "), rest.join("")]);
+      variants.forEach((variant) => {
+        put(`${tokens[0][0]} ${variant}`, zh);
+        put(`${tokens[0]} ${variant}`, zh);
+        put(variant, zh);
+      });
+    }
+  });
+  ambiguous.forEach((key) => index.delete(key));
+  return index;
+}
+
+const playerNameZhIndex = buildPlayerNameZhIndex(loadPlayerNameZh());
+
+function zhPlayerName(value) {
+  if (!value) return null;
+  const key = normalizeAscii(value);
+  if (!key) return null;
+  const direct = playerNameZhIndex.get(key);
+  if (direct) return direct;
+  const tokens = key.split(" ").filter(Boolean);
+  if (tokens.length < 2) return null;
+  // token 排序拼接:兼容 "Son Heung-Min" / "Heungmin Son" 等切分差异
+  const sorted = playerNameZhIndex.get(sortedConcatKey(tokens));
+  if (sorted) return sorted;
+  // 相邻 token 两两合并(连字符名常见):"kim min jae" → "kim minjae"
+  for (let i = 0; i < tokens.length - 1; i += 1) {
+    const merged = [...tokens.slice(0, i), tokens[i] + tokens[i + 1], ...tokens.slice(i + 2)];
+    const hit = playerNameZhIndex.get(merged.join(" ")) ?? playerNameZhIndex.get(sortedConcatKey(merged));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 export const appState = reactive({
   teams: loadTeams(),
   coefficients: loadCoefficientConfig(),
@@ -976,7 +1041,7 @@ async function tryLiveLineup(team) {
       if (lineup.length >= 11) {
         return lineup.slice(0, 11).map((player) => ({
           position: translateLineupPosition(player.pos ?? player.position),
-          name: player.name ?? "未知",
+          name: zhPlayerName(player.name) ?? player.name ?? "未知",
           nameEn: player.name ?? "",
           clubEn: "",
           note: "实时名单",
@@ -1049,14 +1114,16 @@ function translateLineupPosition(position) {
 }
 
 function saveLineupCache(teamId, lineup) {
+  const entry = { savedAt: new Date().toISOString(), lineup };
   try {
     localStorage.setItem(
       `${LINEUP_API.cachePrefix}${teamId}`,
-      JSON.stringify({ savedAt: new Date().toISOString(), lineup })
+      JSON.stringify(entry)
     );
   } catch {
     // localStorage 不可用时忽略缓存
   }
+  return entry;
 }
 
 function readLineupCache(teamId) {
@@ -1075,6 +1142,95 @@ function findTeamByName(name) {
   return ranked.find((team) => normalizeTeamKey(team.nameEn) === key) ?? null;
 }
 
+const TEAM_LINEUP_RETRY_MS = 5 * 60 * 1000;
+const teamLineupRequests = new Map();
+
+function applyLineupAdjustmentToTeam(team, lineup, entry = {}) {
+  if (!Array.isArray(lineup) || !lineup.length) return null;
+  if (entry.savedAt && team.lineupCacheSavedAt === entry.savedAt) return team;
+  const adjusted = recomputeWithLineup(team, lineup);
+  if (!adjusted) return null;
+  return {
+    ...adjusted,
+    startingXI: fillStartingXI(lineup.map(normalizeLineupPlayer)),
+    lineupCacheSavedAt: entry.savedAt ?? null,
+    lineupSource: entry.source ?? "cache"
+  };
+}
+
+function applyTeamLineup(teamId, lineup, entry = {}) {
+  let nextTeam = null;
+  let changed = false;
+  const nextTeams = appState.teams.map((team) => {
+    if (team.id !== teamId) return team;
+    const adjusted = applyLineupAdjustmentToTeam(team, lineup, entry);
+    nextTeam = adjusted ?? team;
+    if (adjusted && adjusted !== team) {
+      changed = true;
+      return adjusted;
+    }
+    return team;
+  });
+  if (changed) appState.teams = nextTeams;
+  return { team: nextTeam, changed };
+}
+
+function applySavedLineupsToTeams() {
+  appState.teams = appState.teams.map((team) => {
+    const cached = readLineupCache(team.id);
+    if (!cached?.lineup?.length) return team;
+    return applyLineupAdjustmentToTeam(team, cached.lineup, {
+      savedAt: cached.savedAt,
+      source: "cache"
+    }) ?? team;
+  });
+}
+
+// 队伍级出场名单：先读持久化缓存；没有缓存时才请求一次实时名单。
+// 成功保存后立即把 appState.teams 中对应队伍替换为按该名单重算后的版本。
+async function ensureTeamLineup(team) {
+  if (!team?.id) return null;
+
+  const cached = readLineupCache(team.id);
+  if (cached?.lineup?.length) {
+    const applied = applyTeamLineup(team.id, cached.lineup, {
+      savedAt: cached.savedAt,
+      source: "cache"
+    });
+    return { source: "cache", ...cached, team: applied.team, adjusted: Boolean(applied.team?.lineupCacheSavedAt) };
+  }
+
+  if (!LINEUP_API.available) return null;
+
+  const pending = teamLineupRequests.get(team.id);
+  if (pending?.promise) return pending.promise;
+  if (pending && Date.now() - pending.at < TEAM_LINEUP_RETRY_MS) return null;
+
+  const promise = (async () => {
+    const live = await tryLiveLineup(team).catch(() => null);
+    if (!live?.length) return null;
+    const entry = saveLineupCache(team.id, live);
+    const applied = applyTeamLineup(team.id, live, {
+      savedAt: entry.savedAt,
+      source: "live"
+    });
+    return {
+      source: "live",
+      savedAt: entry.savedAt,
+      lineup: live,
+      team: applied.team,
+      adjusted: Boolean(applied.team?.lineupCacheSavedAt)
+    };
+  })();
+
+  teamLineupRequests.set(team.id, { at: Date.now(), promise });
+  try {
+    return await promise;
+  } finally {
+    teamLineupRequests.set(team.id, { at: Date.now() });
+  }
+}
+
 // 异步拉两队实时首发：成功则替换显示并按真实首发重算评分，失败回退缓存/本地
 // 用实时首发重算评分：实际首发权重设为 1，其余降为替补（保留深度信号）。
 // 然后按建模脚本同样的口径，用新的出场权重对全体球员加权，重算
@@ -1087,7 +1243,7 @@ function recomputeWithLineup(team, lineup) {
   const starterKeys = new Set(
     (lineup ?? [])
       .filter((item) => !item.placeholder)
-      .map((item) => normalizeTeamKey(item.name))
+      .flatMap((item) => [normalizeTeamKey(item.name), normalizeTeamKey(item.nameEn)])
       .filter(Boolean)
   );
   if (starterKeys.size < 8) return null;
@@ -2356,6 +2512,7 @@ function slugify(value) {
 function normalizePlayer(item) {
   return {
     ...item,
+    name: zhPlayerName(item.nameEn ?? item.name) ?? item.name,
     nameEn: item.nameEn ?? item.name,
     club: item.club ?? item.clubName ?? item.clubEn ?? "未标注",
     clubEn: item.clubEn ?? item.clubNameEn ?? item.club ?? "Unspecified",
@@ -2451,7 +2608,7 @@ function isMatchStarted(match) {
 function mapApiLineupPlayers(players) {
   return players.slice(0, 11).map((item) => ({
     position: translateLineupPosition(item.pos ?? item.position),
-    name: item.name ?? "未知",
+    name: zhPlayerName(item.name) ?? item.name ?? "未知",
     nameEn: item.name ?? "",
     clubEn: "",
     note: "实际首发",
@@ -2525,6 +2682,7 @@ function getLineupAdjustedPair(match, teamA, teamB) {
 
 // ---- module init (was init()) ----
 appState.teams = normalizeTeams(appState.teams);
+applySavedLineupsToTeams();
 appState.selectedId = appState.teams[0]?.id ?? null;
 
 export {
@@ -2536,6 +2694,6 @@ export {
   getBannerMatchStatus, isMatchFinished, normalizeTeams, refreshTeamScores, rankTeams,
   getVisibleTeams, getSelectedTeam, findTeamByName, formatTeamName, getRecentMatchRows,
   getFullScheduleRows, matchMatchesScheduleFilters, getWorldCupMatches, getScheduleSourceLabel,
-  formatGeneratedAt, tryLiveLineup, saveLineupCache, readLineupCache, recomputeWithLineup,
-  getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey
+  formatGeneratedAt, tryLiveLineup, saveLineupCache, readLineupCache, ensureTeamLineup, recomputeWithLineup,
+  getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, zhPlayerName, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey
 };

@@ -1,10 +1,11 @@
 <script setup>
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import {
   appState, getSelectedTeam, getTier, formatScore, formatPercent, signed, clamp,
   scoreComponentConfig, tournamentStageConfig, getCoefficientTotal, getActiveCoefficientConfig,
   getEffectiveCoefficients, formatCoefficient, getDefaultCoefficientConfig,
-  saveCoefficientConfig, saveStageLoadMode, refreshTeamScores, getStageLoadConfig
+  saveCoefficientConfig, saveStageLoadMode, refreshTeamScores, getStageLoadConfig,
+  ensureTeamLineup
 } from "../lib/engine.js";
 import { ui, openLineup } from "../lib/ui.js";
 import PlayerTable from "./PlayerTable.vue";
@@ -59,6 +60,14 @@ const ageBoxes = computed(() => [
   ["满分区间", "25-28"]
 ]);
 
+watch(
+  team,
+  (selectedTeam) => {
+    if (selectedTeam) void ensureTeamLineup(selectedTeam);
+  },
+  { immediate: true }
+);
+
 function displayValue(value) {
   return Number.isFinite(Number(value)) ? formatScore(value) : String(value);
 }
@@ -109,7 +118,8 @@ function resetCoefficients() {
       <div class="metric-tile"><span>位置平衡</span><strong>{{ formatScore(team.scoreComponents.positionalBalance) }}</strong></div>
       <div class="metric-tile"><span>可用性系数</span><strong>{{ Math.round(team.availabilityAdjustment * 100) }}%</strong></div>
       <button class="metric-tile link-metric" type="button" @click="openLineup(team)">
-        <span>预测首发</span><strong>{{ team.squadVersion.status }} →</strong>
+        <span>{{ team.lineupCacheSavedAt ? "已保存出场名单" : "预测首发" }}</span>
+        <strong>{{ team.lineupCacheSavedAt ? "查看名单" : team.squadVersion.status }} →</strong>
       </button>
     </section>
 

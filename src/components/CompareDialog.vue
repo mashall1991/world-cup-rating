@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import {
-  LINEUP_API, dimensionConfig, tryLiveLineup, saveLineupCache, readLineupCache,
+  LINEUP_API, dimensionConfig, ensureTeamLineup, readLineupCache,
   recomputeWithLineup, ensureMatchLineups, getTier, formatScore, clamp
 } from "../lib/engine.js";
 import { ui, closeCompare } from "../lib/ui.js";
@@ -39,22 +39,23 @@ function makeColumn(team) {
 }
 
 async function resolveColumn(col, team, token) {
-  col.meta = "获取实时名单…";
-  const live = await tryLiveLineup(team).catch(() => null);
-  if (token !== ui.compare.token || !ui.compare.open) return null;
-  if (live) {
-    col.lineup = live;
-    col.meta = "实时名单";
-    saveLineupCache(team.id, live);
-    return live;
-  }
   const cached = readLineupCache(team.id);
   if (cached?.lineup?.length) {
     col.lineup = cached.lineup;
     col.meta = "缓存名单";
-  } else {
-    col.meta = "本地预测";
+    await ensureTeamLineup(team).catch(() => null);
+    return cached.lineup;
   }
+
+  col.meta = "获取实时名单…";
+  const result = await ensureTeamLineup(team).catch(() => null);
+  if (token !== ui.compare.token || !ui.compare.open) return null;
+  if (result?.lineup?.length) {
+    col.lineup = result.lineup;
+    col.meta = result.source === "cache" ? "缓存名单" : "实时名单";
+    return result.lineup;
+  }
+  col.meta = "本地预测";
   return null;
 }
 
