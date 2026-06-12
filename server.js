@@ -1,22 +1,23 @@
-// 零依赖 Node 服务器：静态托管 + football-data.org API 代理
-// - 浏览器请求 /api/v4/... 由本服务器转发到 https://api.football-data.org/v4/...
-//   并在服务端附加 X-Auth-Token（解决浏览器 CORS 限制，token 不暴露给前端）
+// 零依赖 Node 服务器：静态托管 + API-Football 代理
+// - 浏览器请求 /api/football/... 由本服务器转发到 https://v3.football.api-sports.io/...
+//   并在服务端附加 x-apisports-key（解决浏览器 CORS 限制，token 不暴露给前端）
 // - 其余路径按静态文件返回
 // 本地运行：node server.js → http://localhost:3000
-// Render 部署：startCommand = node server.js，环境变量 FOOTBALL_DATA_TOKEN
+// Render 部署：startCommand = node server.js，环境变量 API_FOOTBALL_KEY
 
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
 const PORT = Number(process.env.PORT) || 3000;
-const TOKEN = process.env.FOOTBALL_DATA_TOKEN || "";
-const ODDS_API_KEY = process.env.ODDS_API_KEY || "";
-const ODDS_API_SPORT = process.env.ODDS_API_SPORT || "soccer_fifa_world_cup";
-const ODDS_API_REGIONS = process.env.ODDS_API_REGIONS || "us,uk,eu";
+const TOKEN = process.env.API_FOOTBALL_KEY || process.env.APISPORTS_KEY || process.env.API_SPORTS_KEY || "";
+const API_FOOTBALL_LEAGUE = process.env.API_FOOTBALL_LEAGUE || "1";
+const API_FOOTBALL_SEASON = process.env.API_FOOTBALL_SEASON || "2026";
+const API_FOOTBALL_TIMEZONE = process.env.API_FOOTBALL_TIMEZONE || "Asia/Shanghai";
+const API_FOOTBALL_BOOKMAKER = process.env.API_FOOTBALL_BOOKMAKER || "";
+const API_FOOTBALL_ODDS_BET = process.env.API_FOOTBALL_ODDS_BET || "1";
 const ROOT = __dirname;
-const UPSTREAM = "https://api.football-data.org";
-const ODDS_UPSTREAM = "https://api.the-odds-api.com";
+const UPSTREAM = "https://v3.football.api-sports.io";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -44,17 +45,40 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-async function handleApiProxy(req, res, url) {
+function buildApiFootballParams(url, defaults = {}) {
+  const params = new URLSearchParams(defaults);
+  for (const [key, value] of url.searchParams.entries()) {
+    if (key !== "ts") params.set(key, value);
+  }
+  return params;
+}
+
+async function handleApiFootballProxy(req, res, url) {
   if (req.method !== "GET") {
     res.writeHead(405, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "method not allowed" }));
     return;
   }
 
-  const upstreamPath = url.pathname.replace(/^\/api/, "");
+  if (!TOKEN) {
+    sendJson(res, 200, { source: "disabled", fetchedAt: new Date().toISOString(), response: [] });
+    return;
+  }
+
+  let upstreamPath = url.pathname.replace(/^\/api\/football/, "");
+  let params = buildApiFootballParams(url);
+  if (upstreamPath === "/worldcup/fixtures") {
+    upstreamPath = "/fixtures";
+    params = buildApiFootballParams(url, {
+      league: API_FOOTBALL_LEAGUE,
+      season: API_FOOTBALL_SEASON,
+      timezone: API_FOOTBALL_TIMEZONE
+    });
+  }
+
   const bypassCache = url.searchParams.has("ts");
-  url.searchParams.delete("ts");
-  const target = UPSTREAM + upstreamPath + url.search;
+  const query = params.toString();
+  const target = `${UPSTREAM}${upstreamPath}${query ? `?${query}` : ""}`;
 
   const cached = proxyCache.get(target);
   if (!bypassCache && cached && Date.now() - cached.at < PROXY_CACHE_MS) {
@@ -65,7 +89,7 @@ async function handleApiProxy(req, res, url) {
 
   try {
     const upstream = await fetch(target, {
-      headers: TOKEN ? { "X-Auth-Token": TOKEN } : {},
+      headers: { "x-apisports-key": TOKEN },
       signal: AbortSignal.timeout(10000)
     });
     const body = Buffer.from(await upstream.arrayBuffer());
@@ -80,7 +104,7 @@ async function handleApiProxy(req, res, url) {
     res.end(body);
   } catch (error) {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "upstream unavailable", detail: String(error?.message ?? error) }));
+    res.end(JSON.stringify({ error: "api-football upstream unavailable", detail: String(error?.message ?? error) }));
   }
 }
 
@@ -90,12 +114,12 @@ async function handleOddsProxy(req, res) {
     return;
   }
 
-  if (!ODDS_API_KEY) {
+  if (!TOKEN) {
     sendJson(res, 200, { source: "disabled", fetchedAt: new Date().toISOString(), matches: [] });
     return;
   }
 
-  const cacheKey = `odds:${ODDS_API_SPORT}:${ODDS_API_REGIONS}`;
+  const cacheKey = `odds:${API_FOOTBALL_LEAGUE}:${API_FOOTBALL_SEASON}:${API_FOOTBALL_BOOKMAKER}:${API_FOOTBALL_ODDS_BET}`;
   const cached = proxyCache.get(cacheKey);
   if (cached && Date.now() - cached.at < ODDS_CACHE_MS) {
     res.writeHead(cached.status, cached.headers);
@@ -103,24 +127,45 @@ async function handleOddsProxy(req, res) {
     return;
   }
 
-  const target = new URL(`/v4/sports/${ODDS_API_SPORT}/odds`, ODDS_UPSTREAM);
-  target.searchParams.set("apiKey", ODDS_API_KEY);
-  target.searchParams.set("regions", ODDS_API_REGIONS);
-  target.searchParams.set("markets", "h2h");
-  target.searchParams.set("oddsFormat", "decimal");
-  target.searchParams.set("dateFormat", "iso");
+  const target = new URL("/odds", UPSTREAM);
+  target.searchParams.set("league", API_FOOTBALL_LEAGUE);
+  target.searchParams.set("season", API_FOOTBALL_SEASON);
+  target.searchParams.set("bet", API_FOOTBALL_ODDS_BET);
+  if (API_FOOTBALL_BOOKMAKER) target.searchParams.set("bookmaker", API_FOOTBALL_BOOKMAKER);
 
   try {
-    const upstream = await fetch(target, { signal: AbortSignal.timeout(10000) });
-    const body = Buffer.from(await upstream.arrayBuffer());
+    let status = 200;
+    let errors = null;
+    let paging = null;
+    const matches = [];
+    for (let page = 1; page <= 5; page += 1) {
+      target.searchParams.set("page", String(page));
+      const upstream = await fetch(target, {
+        headers: { "x-apisports-key": TOKEN },
+        signal: AbortSignal.timeout(10000)
+      });
+      status = upstream.status;
+      const data = await upstream.json().catch(() => ({}));
+      errors = data.errors ?? errors;
+      paging = data.paging ?? paging;
+      if (Array.isArray(data.response)) matches.push(...data.response);
+      if (!upstream.ok || !paging || Number(paging.current) >= Number(paging.total ?? 1)) break;
+    }
+    const body = Buffer.from(JSON.stringify({
+      source: "api-football",
+      fetchedAt: new Date().toISOString(),
+      matches,
+      paging,
+      errors
+    }));
     const headers = {
-      "Content-Type": upstream.headers.get("content-type") || "application/json",
+      "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store"
     };
-    if (upstream.ok) {
-      proxyCache.set(cacheKey, { at: Date.now(), status: upstream.status, headers, body });
+    if (status >= 200 && status < 300) {
+      proxyCache.set(cacheKey, { at: Date.now(), status, headers, body });
     }
-    res.writeHead(upstream.status, headers);
+    res.writeHead(status, headers);
     res.end(body);
   } catch (error) {
     sendJson(res, 502, { error: "odds upstream unavailable", detail: String(error?.message ?? error) });
@@ -154,8 +199,8 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
   if (url.pathname === "/api/odds/worldcup") {
     handleOddsProxy(req, res);
-  } else if (url.pathname.startsWith("/api/")) {
-    handleApiProxy(req, res, url);
+  } else if (url.pathname.startsWith("/api/football/")) {
+    handleApiFootballProxy(req, res, url);
   } else {
     handleStatic(req, res, url);
   }
@@ -164,9 +209,6 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   if (!TOKEN) {
-    console.warn("FOOTBALL_DATA_TOKEN 未设置：实时数据接口将以未认证方式请求（可能被拒绝）。");
-  }
-  if (!ODDS_API_KEY) {
-    console.warn("ODDS_API_KEY 未设置：赔率信息不会显示。");
+    console.warn("API_FOOTBALL_KEY 未设置：实时赛程、比分、首发和赔率不会显示。");
   }
 });

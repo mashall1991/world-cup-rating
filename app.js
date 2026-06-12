@@ -371,12 +371,11 @@ const ELITE_CLUB_PATTERNS = [
   "borussia dortmund"
 ];
 
-// 实时数据走同源 /api 代理（server.js 转发到 football-data.org 并在服务端附加 token）。
+// 实时数据走同源 /api 代理（server.js 转发到 API-Football 并在服务端附加 token）。
 // 这样浏览器不受 CORS 限制，token 也不暴露在前端源码里。
 // file:// 直接打开页面时无代理可用，自动降级为本地数据。
 const LINEUP_API = {
-  baseUrl: "/api/v4",
-  competition: "WC",
+  baseUrl: "/api/football",
   timeoutMs: 8000,
   scheduleCacheMaxAgeMs: 2 * 60 * 1000,
   cachePrefix: "lineupCache:",
@@ -739,14 +738,13 @@ async function loadLiveSchedule() {
   appState.liveScheduleAttempted = true;
   appState.liveScheduleLoading = true;
   try {
-    const data = await lineupApiGet(
-      `/competitions/${LINEUP_API.competition}/matches?ts=${Date.now()}`
-    );
-    if (data?.matches?.length) {
+    const data = await lineupApiGet(`/worldcup/fixtures?ts=${Date.now()}`);
+    const matches = normalizeApiFootballResponse(data);
+    if (matches.length) {
       appState.liveSchedule = {
         source: "live",
         fetchedAt: new Date().toISOString(),
-        matches: data.matches
+        matches
       };
       try {
         localStorage.setItem("wcScheduleCache", JSON.stringify(appState.liveSchedule));
@@ -791,7 +789,7 @@ async function loadOdds() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     appState.odds = {
-      source: data?.source ?? "the-odds-api",
+      source: data?.source ?? "api-football",
       fetchedAt: new Date().toISOString(),
       matches: Array.isArray(data) ? data : data?.matches ?? []
     };
@@ -871,23 +869,24 @@ function getMatchOdds(match) {
   if (!team1Key || !team2Key) return null;
 
   for (const oddsMatch of oddsMatches) {
+    const sameFixture = match.apiFootballFixtureId && Number(oddsMatch.fixture?.id) === Number(match.apiFootballFixtureId);
     const homeKey = normalizeTeamKey(oddsMatch.home_team);
     const awayKey = normalizeTeamKey(oddsMatch.away_team);
     const sameOrder = homeKey === team1Key && awayKey === team2Key;
     const reverseOrder = homeKey === team2Key && awayKey === team1Key;
-    if (!sameOrder && !reverseOrder) continue;
+    if (!sameFixture && !sameOrder && !reverseOrder) continue;
 
     const h2h = getFirstH2hMarket(oddsMatch);
     if (!h2h) return null;
-    const homePrice = getOutcomePrice(h2h, oddsMatch.home_team);
-    const awayPrice = getOutcomePrice(h2h, oddsMatch.away_team);
+    const homePrice = h2h.apiFootball ? getOutcomePrice(h2h, "Home") : getOutcomePrice(h2h, oddsMatch.home_team);
+    const awayPrice = h2h.apiFootball ? getOutcomePrice(h2h, "Away") : getOutcomePrice(h2h, oddsMatch.away_team);
     const drawPrice = getOutcomePrice(h2h, "Draw");
     return {
-      home: sameOrder ? homePrice : awayPrice,
+      home: sameFixture || sameOrder ? homePrice : awayPrice,
       draw: drawPrice,
-      away: sameOrder ? awayPrice : homePrice,
+      away: sameFixture || sameOrder ? awayPrice : homePrice,
       bookmaker: h2h.bookmaker,
-      updatedAt: oddsMatch.bookmakers?.[0]?.last_update ?? oddsMatch.commence_time
+      updatedAt: oddsMatch.update ?? oddsMatch.bookmakers?.[0]?.last_update ?? oddsMatch.commence_time
     };
   }
 
@@ -896,6 +895,21 @@ function getMatchOdds(match) {
 
 function getFirstH2hMarket(oddsMatch) {
   for (const bookmaker of oddsMatch.bookmakers ?? []) {
+    const apiFootballBet = (bookmaker.bets ?? []).find((item) => {
+      const name = String(item.name ?? "").toLowerCase();
+      return Number(item.id) === 1 || name.includes("match winner") || name.includes("1x2");
+    });
+    if (apiFootballBet?.values?.length) {
+      return {
+        apiFootball: true,
+        bookmaker: bookmaker.name ?? "API-Football",
+        outcomes: apiFootballBet.values.map((item) => ({
+          name: item.value,
+          price: Number(item.odd)
+        }))
+      };
+    }
+
     const market = (bookmaker.markets ?? []).find((item) => item.key === "h2h" && item.outcomes?.length);
     if (market) return { ...market, bookmaker: bookmaker.title ?? bookmaker.key ?? "Odds" };
   }
@@ -1042,6 +1056,8 @@ function getBannerMatchStatus(match) {
 }
 
 function liveMatchToLocal(match) {
+  if (match?.fixture && match?.teams) return apiFootballFixtureToLocal(match);
+
   const utc = String(match.utcDate ?? "");
   const fullTime = match.score?.fullTime;
   const hasScore = fullTime && fullTime.home !== null && fullTime.home !== undefined;
@@ -1065,8 +1081,64 @@ function liveMatchToLocal(match) {
     group: match.group ? match.group.replace("GROUP_", "Group ") : "",
     ground: match.venue ?? "",
     liveScore: hasScore ? `${fullTime.home} : ${fullTime.away}` : null,
-    status: match.status ?? ""
+    status: match.status ?? "",
+    apiFootballFixtureId: match.apiFootballFixtureId ?? null
   };
+}
+
+function normalizeApiFootballResponse(data) {
+  if (Array.isArray(data?.response)) return data.response;
+  if (Array.isArray(data?.matches)) return data.matches;
+  if (Array.isArray(data)) return data;
+  return [];
+}
+
+function apiFootballFixtureToLocal(match) {
+  const fixture = match.fixture ?? {};
+  const status = normalizeApiFootballStatus(fixture.status?.short);
+  const beijing = beijingParts(fixture.date);
+  const homeScore = match.goals?.home;
+  const awayScore = match.goals?.away;
+  const hasScore = homeScore !== null && homeScore !== undefined && awayScore !== null && awayScore !== undefined;
+  return {
+    beijing: true,
+    date: beijing?.date ?? String(fixture.date ?? "").slice(0, 10),
+    time: beijing?.time ?? "--",
+    team1: match.teams?.home?.name ?? "--",
+    team2: match.teams?.away?.name ?? "--",
+    round: normalizeApiFootballRound(match.league?.round),
+    group: normalizeApiFootballGroup(match.league?.round),
+    ground: fixture.venue?.name ?? "",
+    liveScore: hasScore ? `${homeScore} : ${awayScore}` : null,
+    status,
+    apiFootballFixtureId: fixture.id ?? null
+  };
+}
+
+function normalizeApiFootballStatus(shortStatus) {
+  const code = String(shortStatus ?? "").toUpperCase();
+  if (["1H", "2H", "ET", "BT", "P", "LIVE", "INT"].includes(code)) return "IN_PLAY";
+  if (code === "HT") return "PAUSED";
+  if (["FT", "AET", "PEN"].includes(code)) return "FINISHED";
+  if (["NS", "TBD"].includes(code)) return "SCHEDULED";
+  if (["PST", "CANC", "ABD", "AWD", "WO"].includes(code)) return "POSTPONED";
+  return code || "";
+}
+
+function normalizeApiFootballRound(round) {
+  const value = String(round ?? "");
+  if (/final/i.test(value) && !/semi/i.test(value)) return "决赛";
+  if (/semi/i.test(value)) return "半决赛";
+  if (/quarter/i.test(value)) return "1/4决赛";
+  if (/16/.test(value)) return "1/8决赛";
+  if (/32/.test(value)) return "1/16决赛";
+  if (/group/i.test(value)) return "小组赛";
+  return value;
+}
+
+function normalizeApiFootballGroup(round) {
+  const match = /group\s+([A-L])/i.exec(String(round ?? ""));
+  return match ? `Group ${match[1].toUpperCase()}` : "";
 }
 
 function renderActiveView() {
@@ -1185,7 +1257,7 @@ async function openLineup(team) {
 
   if (live) {
     renderLineupGrid(live);
-    setLineupMeta(team, "实时名单 · football-data.org");
+    setLineupMeta(team, "实时名单 · API-Football");
     saveLineupCache(team.id, live);
     return;
   }
@@ -1220,19 +1292,22 @@ function renderLineupGrid(lineup) {
 
 async function tryLiveLineup(team) {
   try {
-    const fixtures = await lineupApiGet(`/competitions/${LINEUP_API.competition}/matches`);
-    const candidates = (fixtures.matches ?? [])
+    const fixturePayload = appState.liveSchedule?.matches?.length
+      ? { response: appState.liveSchedule.matches }
+      : await lineupApiGet(`/worldcup/fixtures`);
+    const candidates = normalizeApiFootballResponse(fixturePayload)
       .filter((match) => matchInvolvesTeam(match, team))
-      .filter((match) => ["IN_PLAY", "PAUSED", "FINISHED"].includes(match.status))
-      .sort((a, b) => String(b.utcDate).localeCompare(String(a.utcDate)));
+      .filter((match) => ["IN_PLAY", "PAUSED", "FINISHED"].includes(liveMatchToLocal(match).status))
+      .sort((a, b) => String(b.fixture?.date ?? b.utcDate ?? "").localeCompare(String(a.fixture?.date ?? a.utcDate ?? "")));
 
     for (const match of candidates.slice(0, 2)) {
-      const detail = await lineupApiGet(`/matches/${match.id}`);
-      const side = pickTeamSide(detail, team);
-      const lineup = side?.lineup ?? [];
+      const fixtureId = match.fixture?.id ?? match.id;
+      if (!fixtureId) continue;
+      const detail = await lineupApiGet(`/fixtures/lineups?fixture=${encodeURIComponent(fixtureId)}`);
+      const lineup = pickApiFootballLineup(detail, team);
       if (lineup.length >= 11) {
         return lineup.slice(0, 11).map((player) => ({
-          position: translateLineupPosition(player.position),
+          position: translateLineupPosition(player.pos ?? player.position),
           name: player.name ?? "未知",
           nameEn: player.name ?? "",
           clubEn: "",
@@ -1264,21 +1339,30 @@ async function lineupApiGet(path) {
 
 function matchInvolvesTeam(match, team) {
   const key = normalizeTeamKey(team.nameEn);
+  if (match?.teams) {
+    return (
+      normalizeTeamKey(match.teams.home?.name) === key ||
+      normalizeTeamKey(match.teams.away?.name) === key
+    );
+  }
   return (
     normalizeTeamKey(match.homeTeam?.name) === key ||
     normalizeTeamKey(match.awayTeam?.name) === key
   );
 }
 
-function pickTeamSide(matchDetail, team) {
+function pickApiFootballLineup(lineupPayload, team) {
   const key = normalizeTeamKey(team.nameEn);
-  if (normalizeTeamKey(matchDetail.homeTeam?.name) === key) return matchDetail.homeTeam;
-  if (normalizeTeamKey(matchDetail.awayTeam?.name) === key) return matchDetail.awayTeam;
-  return null;
+  const side = normalizeApiFootballResponse(lineupPayload).find((item) => normalizeTeamKey(item.team?.name) === key);
+  return (side?.startXI ?? []).map((item) => item.player ?? item).filter(Boolean);
 }
 
 function translateLineupPosition(position) {
   const map = {
+    G: "门将",
+    D: "后卫",
+    M: "中场",
+    F: "前锋",
     Goalkeeper: "门将",
     "Centre-Back": "中卫",
     "Left-Back": "左后卫",
@@ -1746,8 +1830,8 @@ function computeCohesionScore(players, fallback) {
 
 function getRecentMatchRows() {
   const liveFinished = (appState.liveSchedule?.matches ?? [])
-    .filter((match) => ["FINISHED", "IN_PLAY", "PAUSED"].includes(match.status))
     .map(liveMatchToLocal)
+    .filter((match) => ["FINISHED", "IN_PLAY", "PAUSED"].includes(match.status))
     .map((match) => ({
       kind: "recent",
       date: match.date,
@@ -1843,7 +1927,7 @@ function getWorldCupMatches() {
 }
 
 function getScheduleSourceLabel() {
-  if (appState.liveSchedule?.source === "live") return "实时 · football-data.org";
+  if (appState.liveSchedule?.source === "live") return "实时 · API-Football";
   if (appState.liveSchedule?.source === "cache") return "缓存";
   return "本地数据";
 }
