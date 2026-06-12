@@ -791,32 +791,29 @@ function getPrediction(teamA, teamB) {
   const scoreB = Number(teamB.finalScore);
   if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB)) return null;
   const diff = scoreA - scoreB;
-  const probability = getPredictionProbability(diff);
+  const makePrediction = (outcome, label) => {
+    const confidence = getPredictionConfidence(diff, outcome);
+    return { outcome, label, confidence, probability: confidence };
+  };
   if (Math.abs(diff) <= DRAW_PREDICTION_THRESHOLD) {
-    return { outcome: "draw", label: "平局", probability: probability.draw };
+    return makePrediction("draw", "平局");
   }
-  return diff > 0
-    ? { outcome: "home", label: teamA.name, probability: probability.home }
-    : { outcome: "away", label: teamB.name, probability: probability.away };
+  return diff > 0 ? makePrediction("home", teamA.name) : makePrediction("away", teamB.name);
 }
 
-function getPredictionProbability(diff) {
+function getPredictionConfidence(diff, outcome) {
   const edge = Math.abs(Number(diff) || 0);
-  const favoriteWin = 1 / (1 + Math.exp(-(edge - 1.5) / 4.2));
-  const draw = Math.max(0.18, Math.min(0.34, 0.34 - edge * 0.018));
-  const decisive = 1 - draw;
-  const favorite = decisive * favoriteWin + (edge <= DRAW_PREDICTION_THRESHOLD ? 0 : 0.08);
-  const clampedFavorite = Math.max(0.36, Math.min(0.82, favorite));
-  const underdog = Math.max(0.08, decisive - clampedFavorite);
-  return diff >= 0
-    ? { home: clampedFavorite, draw, away: underdog }
-    : { home: underdog, draw, away: clampedFavorite };
+  if (outcome === "draw") {
+    const closeness = Math.max(0, DRAW_PREDICTION_THRESHOLD - edge) / Math.max(1, DRAW_PREDICTION_THRESHOLD);
+    return Math.max(0.52, Math.min(0.64, 0.54 + closeness * 0.1));
+  }
+  return Math.max(0.54, Math.min(0.82, 0.54 + edge * 0.045));
 }
 
 function getPredictionText(teamA, teamB) {
   const prediction = getPrediction(teamA, teamB);
   if (!prediction) return "暂无模型评分";
-  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${prediction.label} · 预测信心 ${formatPercent(prediction.probability)}`;
+  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${prediction.label} · 预测信心 ${formatPercent(prediction.confidence)}`;
 }
 
 function getPredictionBadge(match, teamA, teamB) {
@@ -832,13 +829,13 @@ function getPredictionResultText(match, teamA, teamB) {
   const prediction = getPrediction(teamA, teamB);
   if (!prediction) return "暂无模型评分";
   const actual = getScoreOutcome(match.score ?? match.liveScore);
-  const probability = formatPercent(prediction.probability);
+  const confidence = formatPercent(prediction.confidence);
   if (!match.resultFinal || !actual) {
-    return `看好 ${prediction.label} · 预测信心 ${probability}`;
+    return `看好 ${prediction.label} · 预测信心 ${confidence}`;
   }
   const hit = prediction.outcome === actual;
   const outcomeLabel = hit ? "预测命中" : "预测未中";
-  return `${outcomeLabel} · 看好 ${prediction.label} · 预测信心 ${probability}`;
+  return `${outcomeLabel} · 看好 ${prediction.label} · 预测信心 ${confidence}`;
 }
 
 function getMissingRatingLabel(match, teamA, teamB) {
