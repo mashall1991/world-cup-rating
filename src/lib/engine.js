@@ -1163,7 +1163,7 @@ function compareBannerKickoff(a, b) {
 function getBannerMatchStatus(match) {
   if (match.status === "PAUSED") return { label: "中场休息", className: "is-live" };
   if (match.status === "IN_PLAY") return { label: "比赛进行中", className: "is-live" };
-  if (match.status === "FINISHED") return { label: "今日赛果", className: "is-finished" };
+  if (match.status === "FINISHED") return { label: "赛果", className: "is-finished" };
   return { label: "即将开赛", className: "is-upcoming" };
 }
 
