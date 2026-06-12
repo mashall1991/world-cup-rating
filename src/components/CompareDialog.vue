@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import {
   LINEUP_API, dimensionConfig, tryLiveLineup, saveLineupCache, readLineupCache,
-  recomputeWithLineup, getTier, formatScore, clamp
+  recomputeWithLineup, ensureMatchLineups, getTier, formatScore, clamp
 } from "../lib/engine.js";
 import { ui, closeCompare } from "../lib/ui.js";
 
@@ -72,6 +72,28 @@ watch(
     colB.value = makeColumn(b);
 
     if (!LINEUP_API.available) return;
+
+    // 优先用按场次保存的实际首发(已完赛场次冻结,不再请求)
+    const saved = await ensureMatchLineups(ui.compare.match ?? {}, a, b).catch(() => null);
+    if (token !== ui.compare.token || !ui.compare.open) return;
+    if (saved?.lineups) {
+      const label = saved.phase === "post" ? "实际首发 · 已保存" : "赛前名单 · 已保存";
+      colA.value = { team: a, lineup: saved.lineups.home, meta: label };
+      colB.value = { team: b, lineup: saved.lineups.away, meta: label };
+      const adjA = recomputeWithLineup(a, saved.lineups.home);
+      const adjB = recomputeWithLineup(b, saved.lineups.away);
+      if (adjA || adjB) {
+        adjustedA.value = adjA;
+        adjustedB.value = adjB;
+        const noteParts = [
+          adjA ? `${a.name} 匹配 ${adjA.lineupMatched} 人` : "",
+          adjB ? `${b.name} 匹配 ${adjB.lineupMatched} 人` : ""
+        ].filter(Boolean);
+        note.value = `已按保存的实际首发修正评分 · ${noteParts.join(" · ")}`;
+      }
+      return;
+    }
+
     const [liveA, liveB] = await Promise.all([
       resolveColumn(colA.value, a, token),
       resolveColumn(colB.value, b, token)

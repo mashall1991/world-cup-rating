@@ -419,7 +419,8 @@ export const appState = reactive({
   liveScheduleLoading: false,
   liveScheduleAttempted: false,
   odds: null,
-  oddsLoading: false
+  oddsLoading: false,
+  matchLineupVersion: 0
 });
 
 
@@ -2393,7 +2394,8 @@ function getPredictionStats() {
     const teamB = findTeamByName(match.team2);
     const actual = getScoreOutcome(match.liveScore);
     if (!teamA || !teamB || !actual) return;
-    const prediction = getPrediction(teamA, teamB);
+    const pair = getLineupAdjustedPair(match, teamA, teamB);
+    const prediction = getPrediction(pair.teamA, pair.teamB);
     if (!prediction) return;
     total += 1;
     if (actual === "draw") draws += 1;
@@ -2403,6 +2405,122 @@ function getPredictionStats() {
     }
   });
   return { total, hits, draws, drawHits, accuracy: total ? hits / total : 0 };
+}
+
+// ==== 每场比赛实际首发的持久化与冻结 ====
+// 规则:
+// - 已完赛(或开赛后)保存的名单 phase = "post",立即冻结,不再更新
+// - 赛前保存的名单 phase = "pre",开赛后允许再更新一次,之后冻结
+const MATCH_LINEUP_STORAGE_KEY = "wcMatchLineupStore";
+const MATCH_LINEUP_RETRY_MS = 5 * 60 * 1000;
+const matchLineupRequests = new Map();
+
+function matchLineupKey(match) {
+  return [match.date, normalizeTeamKey(match.team1), normalizeTeamKey(match.team2)].join("|");
+}
+
+function readMatchLineupStore() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MATCH_LINEUP_STORAGE_KEY));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeMatchLineupStore(store) {
+  try {
+    const entries = Object.entries(store)
+      .sort((a, b) => String(b[1]?.savedAt ?? "").localeCompare(String(a[1]?.savedAt ?? "")))
+      .slice(0, 80);
+    localStorage.setItem(MATCH_LINEUP_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // localStorage 不可用时仅在当前会话生效
+  }
+}
+
+function getSavedMatchLineups(match) {
+  if (!match?.team1 || !match?.team2) return null;
+  return readMatchLineupStore()[matchLineupKey(match)] ?? null;
+}
+
+function isMatchStarted(match) {
+  return ["IN_PLAY", "PAUSED", "FINISHED"].includes(match.status) || Boolean(match.resultFinal);
+}
+
+function mapApiLineupPlayers(players) {
+  return players.slice(0, 11).map((item) => ({
+    position: translateLineupPosition(item.pos ?? item.position),
+    name: item.name ?? "未知",
+    nameEn: item.name ?? "",
+    clubEn: "",
+    note: "实际首发",
+    placeholder: false
+  }));
+}
+
+async function fetchMatchLineups(match, teamA, teamB) {
+  let fixtureId = match.apiFootballFixtureId ?? null;
+  if (!fixtureId) {
+    const found = (appState.liveSchedule?.matches ?? []).find(
+      (item) => matchLineupKey(liveMatchToLocal(item)) === matchLineupKey(match)
+    );
+    fixtureId = found?.fixture?.id ?? null;
+  }
+  if (!fixtureId) return null;
+  try {
+    const detail = await lineupApiGet(`/fixtures/lineups?fixture=${encodeURIComponent(fixtureId)}`);
+    const home = pickApiFootballLineup(detail, teamA);
+    const away = pickApiFootballLineup(detail, teamB);
+    if (home.length < 11 || away.length < 11) return null;
+    return { home: mapApiLineupPlayers(home), away: mapApiLineupPlayers(away) };
+  } catch {
+    return null;
+  }
+}
+
+// 获取并保存某场比赛的实际首发(带冻结与 5 分钟节流)。teamA 必须对应 match.team1。
+async function ensureMatchLineups(match, teamA, teamB) {
+  if (!teamA || !teamB || !match?.team1 || !LINEUP_API.available) return getSavedMatchLineups(match);
+  const key = matchLineupKey(match);
+  const entry = getSavedMatchLineups(match);
+  const started = isMatchStarted(match);
+  // 已冻结(post),或赛前名单还没到"开赛后再更新一次"的时机
+  if (entry && (entry.phase === "post" || !started)) return entry;
+
+  const pending = matchLineupRequests.get(key);
+  if (pending?.promise) return pending.promise;
+  if (pending && Date.now() - pending.at < MATCH_LINEUP_RETRY_MS) return entry;
+
+  const promise = (async () => {
+    const fetched = await fetchMatchLineups(match, teamA, teamB);
+    if (!fetched) return entry;
+    const store = readMatchLineupStore();
+    store[key] = {
+      savedAt: new Date().toISOString(),
+      phase: started ? "post" : "pre",
+      lineups: fetched
+    };
+    writeMatchLineupStore(store);
+    appState.matchLineupVersion += 1;
+    return store[key];
+  })();
+  matchLineupRequests.set(key, { at: Date.now(), promise });
+  try {
+    return await promise;
+  } finally {
+    matchLineupRequests.set(key, { at: Date.now() });
+  }
+}
+
+// 用已保存的实际首发修正两队评分;没有保存时原样返回
+function getLineupAdjustedPair(match, teamA, teamB) {
+  if (!teamA || !teamB) return { teamA, teamB, adjusted: false };
+  const entry = getSavedMatchLineups(match);
+  if (!entry?.lineups) return { teamA, teamB, adjusted: false };
+  const adjA = recomputeWithLineup(teamA, entry.lineups.home);
+  const adjB = recomputeWithLineup(teamB, entry.lineups.away);
+  return { teamA: adjA ?? teamA, teamB: adjB ?? teamB, adjusted: Boolean(adjA || adjB) };
 }
 
 // ---- module init (was init()) ----
@@ -2419,5 +2537,5 @@ export {
   getVisibleTeams, getSelectedTeam, findTeamByName, formatTeamName, getRecentMatchRows,
   getFullScheduleRows, matchMatchesScheduleFilters, getWorldCupMatches, getScheduleSourceLabel,
   formatGeneratedAt, tryLiveLineup, saveLineupCache, readLineupCache, recomputeWithLineup,
-  getPredictionStats, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey
+  getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey
 };

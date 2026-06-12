@@ -4,7 +4,7 @@ import {
   appState, getRecentMatchRows, getFullScheduleRows, matchMatchesScheduleFilters,
   getWorldCupMatches, getScheduleSourceLabel, formatGeneratedAt, findTeamByName,
   formatTeamName, getPredictionBadge, getPredictionResultText, getMissingRatingLabel,
-  renderOddsText
+  getLineupAdjustedPair, renderOddsText
 } from "../lib/engine.js";
 import { openCompare } from "../lib/ui.js";
 
@@ -32,6 +32,7 @@ const rows = computed(() => {
   void appState.teams;
   void appState.scheduleQuery;
   void appState.scheduleGroup;
+  void appState.matchLineupVersion;
   const base = isFull.value ? getFullScheduleRows() : getRecentMatchRows();
   const filtered = base.filter(matchMatchesScheduleFilters);
   const visible = isFull.value ? filtered : filtered.slice(0, 80);
@@ -40,11 +41,14 @@ const rows = computed(() => {
     items: visible.map((match, index) => {
       const teamA = findTeamByName(match.team1);
       const teamB = findTeamByName(match.team2);
+      // 有保存的实际首发时,预测按首发修正分计算(只读取,不发请求)
+      const pair = getLineupAdjustedPair(match, teamA, teamB);
+      const suffix = pair.adjusted ? " · 按实际首发" : "";
       return {
         match, teamA, teamB,
         key: `${match.date}|${match.team1}|${match.team2}|${index}`,
-        badge: getPredictionBadge(match, teamA, teamB),
-        prediction: teamA && teamB ? getPredictionResultText(match, teamA, teamB) : "",
+        badge: getPredictionBadge(match, pair.teamA, pair.teamB),
+        prediction: teamA && teamB ? getPredictionResultText(match, pair.teamA, pair.teamB) + suffix : "",
         missing: getMissingRatingLabel(match, teamA, teamB),
         odds: renderOddsText(match)
       };
