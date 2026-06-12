@@ -104,9 +104,9 @@ function enrichOddsWithFixtureTeams(matches, fixtureTeamMap) {
     if (!fixtureTeams) return match;
     return {
       ...match,
-      home_team: match.home_team ?? fixtureTeams.home_team,
-      away_team: match.away_team ?? fixtureTeams.away_team,
-      fixture_date: match.fixture_date ?? fixtureTeams.fixture_date
+      home_team: match.home_team || fixtureTeams.home_team,
+      away_team: match.away_team || fixtureTeams.away_team,
+      fixture_date: match.fixture_date || fixtureTeams.fixture_date
     };
   });
 }

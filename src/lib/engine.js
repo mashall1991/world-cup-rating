@@ -328,6 +328,7 @@ const COEFFICIENT_STORAGE_KEY = "worldCupStrengthCoefficients";
 const STAGE_LOAD_STORAGE_KEY = "worldCupStrengthStageLoad";
 const FINISHED_HOME_RESULTS_STORAGE_KEY = "worldCupFinishedPredictionResults";
 const ODDS_STORAGE_KEY = "wcOddsCache";
+const ODDS_STORAGE_VERSION = 2;
 
 const scoreComponentConfig = [
   ["squadQuality", "阵容质量", 45, "#1f7a4d"],
@@ -681,7 +682,7 @@ function readOddsCache() {
 function writeOddsCache(odds) {
   if (!odds?.matches?.length) return;
   try {
-    localStorage.setItem(ODDS_STORAGE_KEY, JSON.stringify(odds));
+    localStorage.setItem(ODDS_STORAGE_KEY, JSON.stringify({ ...odds, cacheVersion: ODDS_STORAGE_VERSION }));
   } catch {
     // localStorage 不可用时只使用当前会话数据
   }
@@ -694,7 +695,7 @@ function getOddsCacheRemainingMs(cached) {
 }
 
 function isFreshOddsCache(cached) {
-  return Boolean(cached?.matches?.length) && getOddsCacheRemainingMs(cached) > 0;
+  return cached?.cacheVersion === ODDS_STORAGE_VERSION && Boolean(cached?.matches?.length) && getOddsCacheRemainingMs(cached) > 0;
 }
 
 function getActiveOddsRefreshMs() {
@@ -827,17 +828,19 @@ function getMatchOdds(match) {
   if (!team1Key || !team2Key) return null;
 
   for (const oddsMatch of oddsMatches) {
-    const sameFixture = match.apiFootballFixtureId && Number(oddsMatch.fixture?.id) === Number(match.apiFootballFixtureId);
-    const homeKey = normalizeTeamKey(oddsMatch.home_team);
-    const awayKey = normalizeTeamKey(oddsMatch.away_team);
+    const sameFixture = match.apiFootballFixtureId && getOddsFixtureId(oddsMatch) === Number(match.apiFootballFixtureId);
+    const homeName = getOddsHomeName(oddsMatch);
+    const awayName = getOddsAwayName(oddsMatch);
+    const homeKey = normalizeTeamKey(homeName);
+    const awayKey = normalizeTeamKey(awayName);
     const sameOrder = homeKey === team1Key && awayKey === team2Key;
     const reverseOrder = homeKey === team2Key && awayKey === team1Key;
     if (!sameFixture && !sameOrder && !reverseOrder) continue;
 
     const h2h = getFirstH2hMarket(oddsMatch);
-    if (!h2h) return null;
-    const homePrice = h2h.apiFootball ? getOutcomePrice(h2h, "Home") : getOutcomePrice(h2h, oddsMatch.home_team);
-    const awayPrice = h2h.apiFootball ? getOutcomePrice(h2h, "Away") : getOutcomePrice(h2h, oddsMatch.away_team);
+    if (!h2h) continue;
+    const homePrice = h2h.apiFootball ? getOutcomePrice(h2h, "Home") : getOutcomePrice(h2h, homeName);
+    const awayPrice = h2h.apiFootball ? getOutcomePrice(h2h, "Away") : getOutcomePrice(h2h, awayName);
     const drawPrice = getOutcomePrice(h2h, "Draw");
     return {
       home: sameFixture || sameOrder ? homePrice : awayPrice,
@@ -849,6 +852,19 @@ function getMatchOdds(match) {
   }
 
   return null;
+}
+
+function getOddsFixtureId(oddsMatch) {
+  const id = Number(oddsMatch?.fixture?.id ?? oddsMatch?.fixture_id ?? oddsMatch?.id);
+  return Number.isFinite(id) ? id : null;
+}
+
+function getOddsHomeName(oddsMatch) {
+  return oddsMatch?.home_team || oddsMatch?.teams?.home?.name || oddsMatch?.homeTeam?.name || "";
+}
+
+function getOddsAwayName(oddsMatch) {
+  return oddsMatch?.away_team || oddsMatch?.teams?.away?.name || oddsMatch?.awayTeam?.name || "";
 }
 
 function getFirstH2hMarket(oddsMatch) {
