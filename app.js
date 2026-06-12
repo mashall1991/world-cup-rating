@@ -2190,22 +2190,50 @@ function calculatePlayerParticipationStrength(team) {
   let total = 0;
   let weight = 0;
   players.forEach((player) => {
-    const roleWeight = Math.max(0.15, Number(player.appearanceWeight ?? 0.2));
+    const roleWeight = getPlayerParticipationWeight(player);
     const environment = Number(player.environmentScore ?? team.dimensions?.environment ?? 0);
     const league = Number(player.leagueStrength ?? environment);
     const club = Number(player.clubCompetitiveness ?? environment);
     const stability = Number(player.roleStability ?? environment);
     const participationScore = clamp(
-      environment * 0.35 +
-        league * 0.25 +
+      environment * 0.2 +
+        league * 0.3 +
         club * 0.25 +
-        stability * 0.15
+        stability * 0.25 +
+        getClubRoleAdjustment(club, stability)
     );
     total += participationScore * roleWeight;
     weight += roleWeight;
   });
 
   return weight ? clamp(total / weight) : Number(team.dimensions?.environment ?? 0);
+}
+
+function getPlayerParticipationWeight(player) {
+  const nationalRole = Math.max(0.15, Number(player.appearanceWeight ?? 0.2));
+  const stability = Number(player.roleStability ?? player.environmentScore ?? 70);
+  const clubRoleMultiplier =
+    stability >= 88 ? 1.08 :
+    stability >= 82 ? 1 :
+    stability >= 76 ? 0.86 :
+    stability >= 68 ? 0.68 :
+    0.5;
+  return nationalRole * clubRoleMultiplier;
+}
+
+function getClubRoleAdjustment(clubCompetitiveness, roleStability) {
+  const club = Number(clubCompetitiveness);
+  const role = Number(roleStability);
+  let adjustment =
+    club >= 92 ? 3 :
+    club >= 86 ? 1.5 :
+    club >= 78 ? 0 :
+    club >= 68 ? -2 :
+    -5;
+
+  if (club >= 90 && role < 76) adjustment -= 4;
+  if (club < 78 && role >= 86) adjustment += 1.5;
+  return adjustment;
 }
 
 function calibratePublicPerformance(team, publicScore) {
@@ -2479,7 +2507,8 @@ function calculateSquadQuality(team) {
   const starterCount = starters.length || 1;
   const eliteShare = starters.filter(isEliteClubPlayer).length / starterCount;
   const weakShare = starters.filter((player) => Number(player.environmentScore ?? 0) < 76).length / starterCount;
-  const eliteStarterAdjustment = (eliteShare - 0.25) * 10 - Math.max(0, 0.18 - eliteShare) * 8;
+  const eliteStarterAdjustment = (eliteShare - 0.25) * 12 - Math.max(0, 0.18 - eliteShare) * 6;
+  const starCoreAdjustment = calculateStarCoreAdjustment(starters);
   const lowIntensityOldStarters = starters.filter((player) => {
     const age = Number(player.age ?? 0);
     const league = String(player.leagueCode ?? "");
@@ -2491,9 +2520,34 @@ function calculateSquadQuality(team) {
       rotationScore * 0.22 +
       fringeScore * 0.06 +
       eliteStarterAdjustment -
-      weakShare * 6 -
+      weakShare * 4 +
+      starCoreAdjustment -
       lowIntensityOldStarters * 1.4
   );
+}
+
+function calculateStarCoreAdjustment(starters) {
+  const coreScores = starters
+    .map((player) => {
+      const environment = Number(player.environmentScore ?? 0);
+      const club = Number(player.clubCompetitiveness ?? environment);
+      const role = Number(player.roleStability ?? environment);
+      const elite = isEliteClubPlayer(player);
+      if (!elite) return 0;
+      const starScore = environment * 0.4 + club * 0.35 + role * 0.25;
+      const starterBonus = role >= 84 ? 1 : role >= 78 ? 0.4 : -1.5;
+      const clubBonus = 3;
+      return clamp(starScore + starterBonus + clubBonus);
+    })
+    .filter((score) => score > 0)
+    .sort((a, b) => b - a)
+    .slice(0, 3);
+
+  if (!coreScores.length) return 0;
+  const [first = 0, second = first, third = second] = coreScores;
+  const starIndex = first * 0.5 + second * 0.3 + third * 0.2;
+  const elitePeakBonus = Math.max(0, first - 92) * 0.45 + Math.max(0, second - 90) * 0.25;
+  return Math.min(9, Math.max(0, starIndex - 84) * 0.7 + elitePeakBonus);
 }
 
 function isEliteClubPlayer(player) {
