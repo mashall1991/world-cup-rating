@@ -390,8 +390,9 @@ const LINEUP_API = {
 
 const ODDS_API = {
   endpoint: "/api/odds/worldcup",
-  refreshMs: 10 * 60 * 1000,
-  cacheMaxAgeMs: 10 * 60 * 1000,
+  refreshMs: 3 * 60 * 1000,
+  nearKickoffRefreshMs: 60 * 1000,
+  nearKickoffWindowMs: 30 * 60 * 1000,
   get available() {
     return window.location.protocol === "http:" || window.location.protocol === "https:";
   }
@@ -659,7 +660,7 @@ async function loadOdds() {
       : cached?.matches?.length ? { ...cached, source: cached.source ?? "cache-stale" } : null;
   } finally {
     appState.oddsLoading = false;
-    scheduleNextOddsLoad(ODDS_API.refreshMs);
+    scheduleNextOddsLoad(getActiveOddsRefreshMs());
   }
 }
 
@@ -689,11 +690,48 @@ function writeOddsCache(odds) {
 function getOddsCacheRemainingMs(cached) {
   const fetchedAt = new Date(cached?.fetchedAt ?? 0).getTime();
   if (!Number.isFinite(fetchedAt)) return 0;
-  return ODDS_API.cacheMaxAgeMs - (Date.now() - fetchedAt);
+  return getActiveOddsRefreshMs() - (Date.now() - fetchedAt);
 }
 
 function isFreshOddsCache(cached) {
   return Boolean(cached?.matches?.length) && getOddsCacheRemainingMs(cached) > 0;
+}
+
+function getActiveOddsRefreshMs() {
+  return hasNearKickoffMatch() ? ODDS_API.nearKickoffRefreshMs : ODDS_API.refreshMs;
+}
+
+function hasNearKickoffMatch() {
+  const now = Date.now();
+  return getWorldCupMatches().some((match) => {
+    if (isMatchFinished(match) || ["IN_PLAY", "PAUSED", "POSTPONED"].includes(match.status)) return false;
+    const kickoff = getMatchKickoffMs(match);
+    if (!Number.isFinite(kickoff)) return false;
+    const diff = kickoff - now;
+    return diff >= 0 && diff <= ODDS_API.nearKickoffWindowMs;
+  });
+}
+
+function getMatchKickoffMs(match) {
+  const dateText = match?.date;
+  const timeText = String(match?.time ?? "").trim();
+  if (!dateText || !timeText || timeText === "--") return NaN;
+
+  const offsetMatch = /^(\d{1,2}):(\d{2})\s*UTC([+-]\d{1,2})$/.exec(timeText);
+  if (offsetMatch) {
+    const [, hh, mm, offset] = offsetMatch;
+    const sign = offset.startsWith("-") ? "-" : "+";
+    const abs = String(Math.abs(Number(offset))).padStart(2, "0");
+    return new Date(`${dateText}T${hh.padStart(2, "0")}:${mm}:00${sign}${abs}:00`).getTime();
+  }
+
+  const beijingMatch = /^(\d{1,2}):(\d{2})$/.exec(timeText);
+  if (beijingMatch) {
+    const [, hh, mm] = beijingMatch;
+    return new Date(`${dateText}T${hh.padStart(2, "0")}:${mm}:00+08:00`).getTime();
+  }
+
+  return NaN;
 }
 
 // 轮询节奏：

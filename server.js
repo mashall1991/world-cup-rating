@@ -35,7 +35,9 @@ const MIME = {
 // 比分接口需要贴近实时，带 ts= 的请求不走缓存。
 const proxyCache = new Map();
 const PROXY_CACHE_MS = 60 * 1000;
-const ODDS_CACHE_MS = 10 * 60 * 1000;
+const ODDS_CACHE_MS = 3 * 60 * 1000;
+const ODDS_NEAR_KICKOFF_CACHE_MS = 60 * 1000;
+const ODDS_NEAR_KICKOFF_WINDOW_MS = 30 * 60 * 1000;
 const FIXTURE_TEAM_CACHE_MS = 10 * 60 * 1000;
 
 function sendJson(res, status, payload) {
@@ -109,6 +111,20 @@ function enrichOddsWithFixtureTeams(matches, fixtureTeamMap) {
   });
 }
 
+function getOddsCacheMs(matches) {
+  return hasNearKickoffOddsMatch(matches) ? ODDS_NEAR_KICKOFF_CACHE_MS : ODDS_CACHE_MS;
+}
+
+function hasNearKickoffOddsMatch(matches) {
+  const now = Date.now();
+  return matches.some((match) => {
+    const kickoff = new Date(match?.fixture?.date ?? match?.fixture_date ?? "").getTime();
+    if (!Number.isFinite(kickoff)) return false;
+    const diff = kickoff - now;
+    return diff >= 0 && diff <= ODDS_NEAR_KICKOFF_WINDOW_MS;
+  });
+}
+
 async function handleApiFootballProxy(req, res, url) {
   if (req.method !== "GET") {
     res.writeHead(405, { "Content-Type": "application/json" });
@@ -173,7 +189,7 @@ async function handleOddsProxy(req, res) {
 
   const cacheKey = `odds:${API_FOOTBALL_LEAGUE}:${API_FOOTBALL_SEASON}:${API_FOOTBALL_BOOKMAKER}:${API_FOOTBALL_ODDS_BET}`;
   const cached = proxyCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < ODDS_CACHE_MS) {
+  if (cached && Date.now() - cached.at < (cached.maxAgeMs ?? ODDS_CACHE_MS)) {
     res.writeHead(cached.status, cached.headers);
     res.end(cached.body);
     return;
@@ -221,7 +237,7 @@ async function handleOddsProxy(req, res) {
       "Cache-Control": "no-store"
     };
     if (status >= 200 && status < 300) {
-      proxyCache.set(cacheKey, { at: Date.now(), status, headers, body });
+      proxyCache.set(cacheKey, { at: Date.now(), status, headers, body, maxAgeMs: getOddsCacheMs(enrichedMatches) });
     }
     res.writeHead(status, headers);
     res.end(body);
