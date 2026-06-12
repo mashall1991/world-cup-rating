@@ -172,27 +172,46 @@ async function handleOddsProxy(req, res) {
   }
 }
 
+// 静态资源：优先 Vite 构建产物 dist/，找不到再回退仓库根目录（data/public 等）
+const DIST = path.join(ROOT, "dist");
+
+function resolveStatic(pathname) {
+  const candidates = [];
+  for (const base of [DIST, ROOT]) {
+    const filePath = path.normalize(path.join(base, pathname));
+    if (filePath.startsWith(base)) candidates.push(filePath);
+  }
+  return candidates;
+}
+
 function handleStatic(req, res, url) {
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === "/") pathname = "/index.html";
 
-  const filePath = path.normalize(path.join(ROOT, pathname));
-  if (!filePath.startsWith(ROOT)) {
+  const candidates = resolveStatic(pathname);
+  if (!candidates.length) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
   }
 
-  fs.readFile(filePath, (error, data) => {
-    if (error) {
+  const tryRead = (index) => {
+    if (index >= candidates.length) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Not Found");
       return;
     }
-    const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
-    res.end(data);
-  });
+    fs.readFile(candidates[index], (error, data) => {
+      if (error) {
+        tryRead(index + 1);
+        return;
+      }
+      const ext = path.extname(candidates[index]).toLowerCase();
+      res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+      res.end(data);
+    });
+  };
+  tryRead(0);
 }
 
 const server = http.createServer((req, res) => {

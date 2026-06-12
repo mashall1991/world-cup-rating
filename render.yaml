@@ -3,7 +3,7 @@ services:
     name: worldcup-strength
     runtime: node
     plan: free
-    buildCommand: ""
+    buildCommand: "npm install && npm run build"
     startCommand: node server.js
     healthCheckPath: /
     envVars:
