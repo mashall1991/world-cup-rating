@@ -844,9 +844,9 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 
 .match-row {
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr) 200px;
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px);
+  gap: 12px 16px;
+  align-items: start;
   background: var(--bg-soft);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -856,23 +856,33 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .match-row.clickable { cursor: pointer; transition: border-color 0.15s, transform 0.15s; }
 .match-row.clickable:hover { border-color: var(--border-strong); transform: translateY(-1px); }
 
-.match-date { display: flex; flex-direction: column; gap: 2px; }
-.match-date strong { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-strong); }
-.match-date span { font-size: 12px; color: var(--text-faint); }
+.match-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.match-date strong { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.match-date span { font-size: 11.5px; color: var(--text-faint); }
 
-.match-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.match-main { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 
 .match-teams {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(104px, 1fr) auto minmax(104px, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-size: 14.5px;
   color: var(--text-strong);
   font-weight: 600;
 }
 
-.match-team { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.match-team {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
 .match-team.home { text-align: right; }
 
 .match-score {
@@ -1187,9 +1197,8 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 
   .split-section { grid-template-columns: 1fr; }
 
-  .match-row { grid-template-columns: 72px minmax(0, 1fr); }
+  .match-row { grid-template-columns: 1fr; }
   .match-side {
-    grid-column: 1 / -1;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
@@ -1276,6 +1285,14 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
   .dimension-row { grid-template-columns: 100px minmax(0, 1fr) 42px; gap: 8px; }
   .age-profile { grid-template-columns: repeat(3, 1fr); }
   .schedule-status { align-items: flex-start; }
+  .schedule-panel { padding: 14px 10px; }
+  .match-row { padding: 12px; }
+  .match-teams {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 8px;
+    font-size: 14px;
+  }
+  .match-score { padding: 2px 8px; }
   .modal { max-height: 92vh; padding: 16px 14px 20px; }
   .compare-label { white-space: normal; }
 }

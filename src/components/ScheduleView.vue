@@ -114,17 +114,17 @@ function onRowClick(item) {
           :title="item.missing || (item.teamA && item.teamB ? '点击查看两队实力对比' : undefined)"
           @click="onRowClick(item)"
         >
-          <div class="match-date">
-            <strong>{{ item.match.date }}</strong>
-            <span>{{ item.match.time }}</span>
-          </div>
           <div class="match-main">
+            <div class="match-date">
+              <strong>{{ item.match.date }}</strong>
+              <span>{{ item.match.time }}</span>
+              <span>{{ item.match.meta }}</span>
+            </div>
             <div class="match-teams">
               <span class="match-team home">{{ formatTeamName(item.match.team1) }}</span>
               <span class="match-score">{{ item.match.score }}</span>
               <span class="match-team away">{{ formatTeamName(item.match.team2) }}</span>
             </div>
-            <div class="match-meta">{{ item.match.meta }}</div>
             <div v-if="item.odds" class="match-odds">{{ item.odds }}</div>
           </div>
           <div class="match-side">
