@@ -290,6 +290,19 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   color: var(--text-muted);
 }
 
+.live-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.live-predict {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
 .live-predict.hit {
   color: var(--text-strong);
 }
@@ -299,7 +312,17 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   font-weight: 800;
 }
 
-.live-odds { color: var(--gold); font-variant-numeric: tabular-nums; }
+.live-odds {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.18);
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 
 /* ---------- 主工作区 ---------- */
 

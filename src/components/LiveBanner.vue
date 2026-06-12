@@ -18,13 +18,13 @@ const cards = computed(() => {
     const teamB = findTeamByName(local.team2);
     const stageText = [local.round, local.group].filter(Boolean).join(" · ");
     const status = getBannerMatchStatus(local);
-    // 即将开赛/进行中的卡片不展示模型胜率,只有已完赛场次展示预测结果;
-    // 有保存的实际首发时按首发修正分计算
+    // 置顶卡片展示模型预测；已完赛场次额外展示命中结果。
+    // 有保存的实际首发时按首发修正分计算。
     let predictText = "";
-    if (teamA && teamB && local.status === "FINISHED") {
+    if (teamA && teamB) {
       const pair = getLineupAdjustedPair(local, teamA, teamB);
       predictText = getPredictionResultText(
-        { ...local, score: local.liveScore, resultFinal: true },
+        { ...local, score: local.liveScore, resultFinal: local.status === "FINISHED" },
         pair.teamA,
         pair.teamB
       );
@@ -96,10 +96,12 @@ function onCardClick(card) {
         <strong>{{ formatTeamName(card.local.team2) }}</strong>
       </span>
       <span class="live-meta">{{ [card.local.date, card.local.time, card.stageText || "世界杯"].filter(Boolean).join(" · ") }}</span>
-      <span v-if="card.predictText" class="live-predict" :class="{ hit: card.predictParts.hit }">
-        <strong v-if="card.predictParts.hit">{{ card.predictParts.hit }}</strong>{{ card.predictParts.rest }}
+      <span v-if="card.predictText || card.odds" class="live-card-info">
+        <span v-if="card.predictText" class="live-predict" :class="{ hit: card.predictParts.hit }">
+          <strong v-if="card.predictParts.hit">{{ card.predictParts.hit }}</strong>{{ card.predictParts.rest }}
+        </span>
+        <span v-if="card.odds" class="live-odds">{{ card.odds }}</span>
       </span>
-      <span v-if="card.odds" class="live-odds">{{ card.odds }}</span>
     </button>
   </div>
 </template>

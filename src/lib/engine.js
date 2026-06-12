@@ -816,7 +816,7 @@ function getPredictionProbability(diff) {
 function getPredictionText(teamA, teamB) {
   const prediction = getPrediction(teamA, teamB);
   if (!prediction) return "暂无模型评分";
-  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${prediction.label} · 胜率 ${formatPercent(prediction.probability)}`;
+  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${prediction.label} · 预测信心 ${formatPercent(prediction.probability)}`;
 }
 
 function getPredictionBadge(match, teamA, teamB) {
@@ -834,11 +834,11 @@ function getPredictionResultText(match, teamA, teamB) {
   const actual = getScoreOutcome(match.score ?? match.liveScore);
   const probability = formatPercent(prediction.probability);
   if (!match.resultFinal || !actual) {
-    return `看好 ${prediction.label} · 胜率 ${probability}`;
+    return `看好 ${prediction.label} · 预测信心 ${probability}`;
   }
   const hit = prediction.outcome === actual;
   const outcomeLabel = hit ? "预测命中" : "预测未中";
-  return `${outcomeLabel} · 看好 ${prediction.label} · 胜率 ${probability}`;
+  return `${outcomeLabel} · 看好 ${prediction.label} · 预测信心 ${probability}`;
 }
 
 function getMissingRatingLabel(match, teamA, teamB) {
