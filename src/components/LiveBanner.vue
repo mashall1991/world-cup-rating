@@ -30,8 +30,9 @@ const cards = computed(() => {
       );
       if (pair.adjusted) predictText += " · 按实际首发";
     }
+    const predictParts = predictionParts(predictText);
     return {
-      local, teamA, teamB, stageText, status, predictText,
+      local, teamA, teamB, stageText, status, predictText, predictParts,
       odds: renderOddsText(local),
       key: `${local.date}|${local.team1}|${local.team2}`
     };
@@ -44,6 +45,11 @@ const stats = computed(() => {
   void appState.matchLineupVersion;
   return getPredictionStats();
 });
+
+function predictionParts(text) {
+  const match = /^(预测命中|平局命中)(.*)$/.exec(text ?? "");
+  return match ? { hit: match[1], rest: match[2] } : { hit: "", rest: text };
+}
 
 // 对横幅中的比赛尝试获取并保存实际首发(engine 内部自带冻结与节流)
 watchEffect(() => {
@@ -90,7 +96,9 @@ function onCardClick(card) {
         <strong>{{ formatTeamName(card.local.team2) }}</strong>
       </span>
       <span class="live-meta">{{ [card.local.date, card.local.time, card.stageText || "世界杯"].filter(Boolean).join(" · ") }}</span>
-      <span v-if="card.predictText" class="live-predict">{{ card.predictText }}</span>
+      <span v-if="card.predictText" class="live-predict" :class="{ hit: card.predictParts.hit }">
+        <strong v-if="card.predictParts.hit">{{ card.predictParts.hit }}</strong>{{ card.predictParts.rest }}
+      </span>
       <span v-if="card.odds" class="live-odds">{{ card.odds }}</span>
     </button>
   </div>
