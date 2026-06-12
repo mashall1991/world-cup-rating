@@ -38,6 +38,8 @@ const PROXY_CACHE_MS = 60 * 1000;
 const ODDS_CACHE_MS = 3 * 60 * 1000;
 const ODDS_NEAR_KICKOFF_CACHE_MS = 60 * 1000;
 const ODDS_NEAR_KICKOFF_WINDOW_MS = 30 * 60 * 1000;
+const ODDS_TARGETED_FIXTURE_WINDOW_MS = 36 * 60 * 60 * 1000;
+const ODDS_TARGETED_FIXTURE_LIMIT = 8;
 const FIXTURE_TEAM_CACHE_MS = 10 * 60 * 1000;
 
 function sendJson(res, status, payload) {
@@ -88,6 +90,7 @@ async function getFixtureTeamMap() {
     const fixtureId = item?.fixture?.id;
     if (!fixtureId) continue;
     map.set(Number(fixtureId), {
+      fixture_id: Number(fixtureId),
       home_team: item.teams?.home?.name ?? "",
       away_team: item.teams?.away?.name ?? "",
       fixture_date: item.fixture?.date ?? ""
@@ -123,6 +126,36 @@ function hasNearKickoffOddsMatch(matches) {
     const diff = kickoff - now;
     return diff >= 0 && diff <= ODDS_NEAR_KICKOFF_WINDOW_MS;
   });
+}
+
+function getTargetedFixtureIds(fixtureTeamMap, existingOddsMatches) {
+  const now = Date.now();
+  const existingIds = new Set((existingOddsMatches ?? []).map((match) => Number(match?.fixture?.id)).filter(Number.isFinite));
+  return [...fixtureTeamMap.entries()]
+    .filter(([fixtureId, item]) => {
+      if (existingIds.has(Number(fixtureId))) return false;
+      const kickoff = new Date(item.fixture_date ?? "").getTime();
+      if (!Number.isFinite(kickoff)) return false;
+      const diff = kickoff - now;
+      return diff >= 0 && diff <= ODDS_TARGETED_FIXTURE_WINDOW_MS;
+    })
+    .sort((a, b) => new Date(a[1].fixture_date).getTime() - new Date(b[1].fixture_date).getTime())
+    .slice(0, ODDS_TARGETED_FIXTURE_LIMIT)
+    .map(([fixtureId]) => Number(fixtureId));
+}
+
+async function fetchTargetedFixtureOdds(fixtureIds) {
+  const matches = [];
+  const attempted = [];
+  for (const fixtureId of fixtureIds) {
+    const params = new URLSearchParams({ fixture: String(fixtureId), bet: API_FOOTBALL_ODDS_BET });
+    if (API_FOOTBALL_BOOKMAKER) params.set("bookmaker", API_FOOTBALL_BOOKMAKER);
+    attempted.push(fixtureId);
+    const { ok, data } = await fetchApiFootballJson("/odds", params);
+    if (!ok) continue;
+    if (Array.isArray(data.response)) matches.push(...data.response);
+  }
+  return { matches, attempted };
 }
 
 async function handleApiFootballProxy(req, res, url) {
@@ -220,8 +253,13 @@ async function handleOddsProxy(req, res) {
       if (!upstream.ok || !paging || Number(paging.current) >= Number(paging.total ?? 1)) break;
     }
     let enrichedMatches = matches;
+    let targeted = { attempted: [], added: 0 };
     try {
-      enrichedMatches = enrichOddsWithFixtureTeams(matches, await getFixtureTeamMap());
+      const fixtureTeamMap = await getFixtureTeamMap();
+      const targetedFixtureIds = getTargetedFixtureIds(fixtureTeamMap, matches);
+      const targetedOdds = await fetchTargetedFixtureOdds(targetedFixtureIds);
+      targeted = { attempted: targetedOdds.attempted, added: targetedOdds.matches.length };
+      enrichedMatches = enrichOddsWithFixtureTeams([...matches, ...targetedOdds.matches], fixtureTeamMap);
     } catch {
       // 赔率本身可用时，不因为补主客队名失败而丢掉赔率响应。
     }
@@ -230,7 +268,8 @@ async function handleOddsProxy(req, res) {
       fetchedAt: new Date().toISOString(),
       matches: enrichedMatches,
       paging,
-      errors
+      errors,
+      targeted
     }));
     const headers = {
       "Content-Type": "application/json; charset=utf-8",

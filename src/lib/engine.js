@@ -328,7 +328,7 @@ const COEFFICIENT_STORAGE_KEY = "worldCupStrengthCoefficients";
 const STAGE_LOAD_STORAGE_KEY = "worldCupStrengthStageLoad";
 const FINISHED_HOME_RESULTS_STORAGE_KEY = "worldCupFinishedPredictionResults";
 const ODDS_STORAGE_KEY = "wcOddsCache";
-const ODDS_STORAGE_VERSION = 3;
+const ODDS_STORAGE_VERSION = 4;
 const ODDS_DEBUG_STORAGE_KEY = "wcOddsDebug";
 
 const scoreComponentConfig = [
@@ -673,6 +673,7 @@ async function loadOdds() {
       matches: appState.odds.matches.length,
       paging: data?.paging ?? null,
       errors: data?.errors ?? null,
+      targeted: data?.targeted ?? null,
       canadaBosniaCandidates: summarizeOddsCandidates(appState.odds.matches, "Canada", "Bosnia & Herzegovina")
     });
     writeOddsCache(appState.odds);
