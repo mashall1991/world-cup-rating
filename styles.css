@@ -533,6 +533,14 @@ h3 {
   font-weight: 800;
 }
 
+.match-prediction {
+  max-width: 220px;
+  color: #1f7a4d;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
 .match-side {
   display: grid;
   justify-items: end;

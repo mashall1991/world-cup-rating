@@ -324,6 +324,7 @@ const tournamentTeamSeeds = [
 
 const COEFFICIENT_STORAGE_KEY = "worldCupStrengthCoefficients";
 const STAGE_LOAD_STORAGE_KEY = "worldCupStrengthStageLoad";
+const FINISHED_HOME_RESULTS_STORAGE_KEY = "worldCupFinishedPredictionResults";
 
 const scoreComponentConfig = [
   ["squadQuality", "阵容质量", 45, "#1f7a4d"],
@@ -395,6 +396,8 @@ const ODDS_API = {
 const DRAW_PREDICTION_THRESHOLD = 1.5;
 
 const publicData = loadPublicData();
+const clubPlayerStats = loadClubPlayerStats();
+const clubPlayerStatsIndex = buildClubPlayerStatsIndex(clubPlayerStats);
 
 const appState = {
   teams: loadTeams(),
@@ -833,26 +836,54 @@ function getPrediction(teamA, teamB) {
   const scoreB = Number(teamB.finalScore);
   if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB)) return null;
   const diff = scoreA - scoreB;
+  const probability = getPredictionProbability(diff);
   if (Math.abs(diff) <= DRAW_PREDICTION_THRESHOLD) {
-    return { outcome: "draw", label: "平局" };
+    return { outcome: "draw", label: "平局", probability: probability.draw };
   }
   return diff > 0
-    ? { outcome: "home", label: teamA.name }
-    : { outcome: "away", label: teamB.name };
+    ? { outcome: "home", label: teamA.name, probability: probability.home }
+    : { outcome: "away", label: teamB.name, probability: probability.away };
+}
+
+function getPredictionProbability(diff) {
+  const edge = Math.abs(Number(diff) || 0);
+  const favoriteWin = 1 / (1 + Math.exp(-(edge - 1.5) / 4.2));
+  const draw = Math.max(0.18, Math.min(0.34, 0.34 - edge * 0.018));
+  const decisive = 1 - draw;
+  const favorite = decisive * favoriteWin + (edge <= DRAW_PREDICTION_THRESHOLD ? 0 : 0.08);
+  const clampedFavorite = Math.max(0.36, Math.min(0.82, favorite));
+  const underdog = Math.max(0.08, decisive - clampedFavorite);
+  return diff >= 0
+    ? { home: clampedFavorite, draw, away: underdog }
+    : { home: underdog, draw, away: clampedFavorite };
 }
 
 function getPredictionText(teamA, teamB) {
   const prediction = getPrediction(teamA, teamB);
   if (!prediction) return "暂无模型评分";
-  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${prediction.label}`;
+  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${prediction.label} · 胜率 ${formatPercent(prediction.probability)}`;
 }
 
 function getPredictionBadge(match, teamA, teamB) {
   if (!match.resultFinal) return "";
   const prediction = getPrediction(teamA, teamB);
   const actual = getScoreOutcome(match.score);
-  if (!prediction || !actual || prediction.outcome !== actual) return "";
-  return prediction.outcome === "draw" ? "平局命中" : "预测命中";
+  if (!prediction || !actual) return "";
+  if (prediction.outcome === actual) return prediction.outcome === "draw" ? "平局命中" : "预测命中";
+  return "预测未中";
+}
+
+function getPredictionResultText(match, teamA, teamB) {
+  const prediction = getPrediction(teamA, teamB);
+  if (!prediction) return "暂无模型评分";
+  const actual = getScoreOutcome(match.score ?? match.liveScore);
+  const probability = formatPercent(prediction.probability);
+  if (!match.resultFinal || !actual) {
+    return `看好 ${prediction.label} · 胜率 ${probability}`;
+  }
+  const hit = prediction.outcome === actual;
+  const outcomeLabel = hit ? "预测命中" : "预测未中";
+  return `${outcomeLabel} · 看好 ${prediction.label} · 胜率 ${probability}`;
 }
 
 function getMissingRatingLabel(match, teamA, teamB) {
@@ -923,6 +954,7 @@ function getOutcomePrice(market, name) {
 }
 
 function renderOddsText(match) {
+  if (isMatchFinished(match)) return "";
   const odds = getMatchOdds(match);
   if (!odds) return "";
   const parts = [
@@ -932,7 +964,7 @@ function renderOddsText(match) {
   ]
     .filter(([, value]) => value !== null)
     .map(([label, value]) => `${label} ${Number(value).toFixed(2)}`);
-  return parts.length ? `市场赔率 ${parts.join(" / ")}` : "";
+  return parts.length ? parts.join(" / ") : "";
 }
 
 function getScoreOutcome(scoreText) {
@@ -966,7 +998,9 @@ function renderLiveBanner() {
 
     let predictText = "暂无模型评分";
     if (teamA && teamB) {
-      predictText = getPredictionText(teamA, teamB);
+      predictText = local.status === "FINISHED"
+        ? getPredictionResultText({ ...local, score: local.liveScore, resultFinal: true }, teamA, teamB)
+        : getPredictionText(teamA, teamB);
     }
 
     const card = document.createElement("button");
@@ -1024,8 +1058,13 @@ function getFeaturedBannerMatches() {
       };
     });
   const source = liveSource.length ? liveSource : localSource;
+  persistFinishedHomeResults(source.filter((match) => match.status === "FINISHED"));
   const liveMatches = source.filter((match) => ["IN_PLAY", "PAUSED"].includes(match.status));
-  const finishedToday = source.filter((match) => match.status === "FINISHED" && match.date === today);
+  const finishedSaved = readFinishedHomeResults();
+  const finishedRecent = mergeFinishedMatches(
+    source.filter((match) => match.status === "FINISHED"),
+    finishedSaved
+  ).sort((a, b) => compareBannerKickoff(b, a));
   const upcoming = source
     .filter((match) => ["SCHEDULED", "TIMED"].includes(match.status))
     .filter((match) => !today || match.date >= today)
@@ -1033,15 +1072,66 @@ function getFeaturedBannerMatches() {
 
   const upcomingToday = upcoming.filter((match) => match.date === today);
   const upcomingVisible = upcomingToday.length ? upcomingToday : upcoming.slice(0, Math.max(0, 3 - liveMatches.length));
+  const finishedVisible = finishedRecent.slice(0, liveMatches.length || upcomingVisible.length ? 3 : 6);
 
-  return [...liveMatches, ...upcomingVisible, ...finishedToday]
+  return [...liveMatches, ...upcomingVisible, ...finishedVisible]
     .sort((a, b) => {
       const priority = { IN_PLAY: 0, PAUSED: 0, TIMED: 1, SCHEDULED: 1, FINISHED: 2 };
       const priorityDiff = (priority[a.status] ?? 9) - (priority[b.status] ?? 9);
       if (priorityDiff) return priorityDiff;
       return compareBannerKickoff(a, b);
     })
-    .slice(0, 6);
+    .slice(0, 8);
+}
+
+function persistFinishedHomeResults(matches) {
+  if (!matches.length) return;
+  try {
+    const merged = mergeFinishedMatches(matches, readFinishedHomeResults())
+      .sort((a, b) => compareBannerKickoff(b, a))
+      .slice(0, 24);
+    localStorage.setItem(FINISHED_HOME_RESULTS_STORAGE_KEY, JSON.stringify(merged));
+  } catch {
+    // localStorage 不可用时只在当前实时数据里展示
+  }
+}
+
+function readFinishedHomeResults() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FINISHED_HOME_RESULTS_STORAGE_KEY));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeFinishedMatches(primary, secondary) {
+  const byKey = new Map();
+  [...secondary, ...primary].forEach((match) => {
+    if (!match || match.status !== "FINISHED") return;
+    byKey.set(getMatchStorageKey(match), {
+      beijing: true,
+      date: match.date ?? "--",
+      time: match.time ?? "--",
+      team1: match.team1 ?? "--",
+      team2: match.team2 ?? "--",
+      round: match.round ?? "",
+      group: match.group ?? "",
+      ground: match.ground ?? "",
+      liveScore: match.liveScore ?? match.score ?? null,
+      status: "FINISHED",
+      apiFootballFixtureId: match.apiFootballFixtureId ?? null
+    });
+  });
+  return [...byKey.values()];
+}
+
+function getMatchStorageKey(match) {
+  return [
+    match.apiFootballFixtureId || match.date,
+    normalizeTeamKey(match.team1),
+    normalizeTeamKey(match.team2)
+  ].join("|");
 }
 
 function compareBannerKickoff(a, b) {
@@ -1084,6 +1174,10 @@ function liveMatchToLocal(match) {
     status: match.status ?? "",
     apiFootballFixtureId: match.apiFootballFixtureId ?? null
   };
+}
+
+function isMatchFinished(match) {
+  return match?.status === "FINISHED" || Boolean(match?.resultFinal);
 }
 
 function normalizeApiFootballResponse(data) {
@@ -1223,11 +1317,14 @@ function renderDetail() {
     ["正式比赛结果", team.performanceBreakdown.officialResults],
     ["正式比赛攻防", team.performanceBreakdown.officialGoalProfile],
     ["强队交手表现", team.performanceBreakdown.strongOpponent],
+    ["球员俱乐部强度", team.performanceBreakdown.playerParticipation],
+    ["API俱乐部覆盖", formatPercent(team.performanceBreakdown.clubStatsCoverage)],
     ["公开数据匹配", team.publicPerformance ? "已接入" : "未匹配"]
   ]);
   renderBreakdown(els.cohesionBreakdown, [
     ["国家队共同出场", team.cohesionBreakdown.nationalTeam],
     ["同俱乐部共同出场", team.cohesionBreakdown.club],
+    ["俱乐部数据修正", signed(team.cohesionBreakdown.clubDataAdjustment ?? 0)],
     ["青训/历史经历", team.cohesionBreakdown.historical]
   ]);
   renderAgeProfile(team);
@@ -1499,6 +1596,7 @@ function renderSchedule() {
     const teamA = findTeamByName(match.team1);
     const teamB = findTeamByName(match.team2);
     const predictionBadge = getPredictionBadge(match, teamA, teamB);
+    const predictionText = teamA && teamB ? getPredictionResultText(match, teamA, teamB) : "";
     const missingRatingLabel = getMissingRatingLabel(match, teamA, teamB);
     const oddsText = renderOddsText(match);
     const row = document.createElement("article");
@@ -1523,6 +1621,7 @@ function renderSchedule() {
       <div class="match-side">
         <span class="match-pill">${escapeHtml(match.badge)}</span>
         ${predictionBadge ? `<span class="match-pill match-pill-success">${escapeHtml(predictionBadge)}</span>` : ""}
+        ${predictionText ? `<span class="match-prediction">${escapeHtml(predictionText)}</span>` : ""}
         ${missingRatingLabel ? `<span class="match-pill match-pill-muted">缺少模型评分</span>` : ""}
         <span>${escapeHtml(match.place)}</span>
       </div>
@@ -2082,6 +2181,29 @@ function loadPublicData() {
     : null;
 }
 
+function loadClubPlayerStats() {
+  return window.WORLD_CUP_CLUB_PLAYER_STATS && typeof window.WORLD_CUP_CLUB_PLAYER_STATS === "object"
+    ? window.WORLD_CUP_CLUB_PLAYER_STATS
+    : { players: [] };
+}
+
+function buildClubPlayerStatsIndex(payload) {
+  const index = new Map();
+  for (const item of payload?.players ?? []) {
+    [item.playerEn, item.player].filter(Boolean).forEach((name) => {
+      const key = normalizeTeamKey(name);
+      if (key && !index.has(key)) index.set(key, item);
+    });
+  }
+  return index;
+}
+
+function getClubPlayerStats(player) {
+  return clubPlayerStatsIndex.get(normalizeTeamKey(player.nameEn)) ??
+    clubPlayerStatsIndex.get(normalizeTeamKey(player.name)) ??
+    null;
+}
+
 // 近期表现算法：
 // 1) 时间衰减：12 个月半衰期，窗口内越近的比赛权重越高
 // 2) 迭代 SOS（4 轮）：对手系数（0.6x~1.4x）每轮用上一轮调整后的分数重算，
@@ -2267,6 +2389,34 @@ function applyPublicPerformance(team) {
   };
 }
 
+function applyClubDataAdjustments(team) {
+  const players = Array.isArray(team.players) ? team.players : [];
+  if (!players.length) return team;
+
+  const clubStatsCoverage = calculateClubStatsCoverage(players);
+  const clubCohesionAdjustment = calculateClubDataCohesionAdjustment(team);
+  if (!clubStatsCoverage && !clubCohesionAdjustment) return team;
+
+  const adjustedCohesion = clamp(Number(team.dimensions?.cohesion ?? 0) + clubCohesionAdjustment);
+  return {
+    ...team,
+    dimensions: {
+      ...team.dimensions,
+      cohesion: adjustedCohesion
+    },
+    cohesionBreakdown: {
+      ...team.cohesionBreakdown,
+      club: clamp(Number(team.cohesionBreakdown?.club ?? 0) + clubCohesionAdjustment * 2.5),
+      clubDataAdjustment: clubCohesionAdjustment,
+      clubStatsCoverage
+    },
+    performanceBreakdown: {
+      ...team.performanceBreakdown,
+      clubStatsCoverage
+    }
+  };
+}
+
 function calculatePlayerParticipationStrength(team) {
   const players = Array.isArray(team.players) ? team.players : [];
   if (!players.length) return Number(team.dimensions?.environment ?? 0);
@@ -2279,12 +2429,14 @@ function calculatePlayerParticipationStrength(team) {
     const league = Number(player.leagueStrength ?? environment);
     const club = Number(player.clubCompetitiveness ?? environment);
     const stability = Number(player.roleStability ?? environment);
+    const clubPerformanceAdjustment = getClubPerformanceAdjustment(player);
     const participationScore = clamp(
       environment * 0.2 +
         league * 0.3 +
         club * 0.25 +
         stability * 0.25 +
-        getClubRoleAdjustment(club, stability)
+        getClubRoleAdjustment(club, stability) +
+        clubPerformanceAdjustment * 0.9
     );
     total += participationScore * roleWeight;
     weight += roleWeight;
@@ -2302,7 +2454,7 @@ function getPlayerParticipationWeight(player) {
     stability >= 76 ? 0.86 :
     stability >= 68 ? 0.68 :
     0.5;
-  return nationalRole * clubRoleMultiplier;
+  return nationalRole * clubRoleMultiplier * getClubDataWeightMultiplier(player);
 }
 
 function getClubRoleAdjustment(clubCompetitiveness, roleStability) {
@@ -2318,6 +2470,65 @@ function getClubRoleAdjustment(clubCompetitiveness, roleStability) {
   if (club >= 90 && role < 76) adjustment -= 4;
   if (club < 78 && role >= 86) adjustment += 1.5;
   return adjustment;
+}
+
+function calculateClubStatsCoverage(players) {
+  const relevant = players.filter((player) => Number(player.appearanceWeight ?? 0) >= 0.55);
+  if (!relevant.length) return 0;
+  const coveredWeight = relevant.reduce((sum, player) => {
+    const hasMetrics = Boolean(getClubPlayerStats(player)?.latestSeason?.metrics);
+    return sum + (hasMetrics ? Number(player.appearanceWeight ?? 0) : 0);
+  }, 0);
+  const totalWeight = relevant.reduce((sum, player) => sum + Number(player.appearanceWeight ?? 0), 0);
+  return totalWeight ? coveredWeight / totalWeight : 0;
+}
+
+function calculateClubDataCohesionAdjustment(team) {
+  const players = (team.players ?? []).filter((player) => Number(player.appearanceWeight ?? 0) >= 0.55);
+  if (players.length < 2) return 0;
+
+  let weightedPairs = 0;
+  let actualClubScore = 0;
+  let coveredPairs = 0;
+
+  for (let i = 0; i < players.length; i += 1) {
+    for (let j = i + 1; j < players.length; j += 1) {
+      const a = players[i];
+      const b = players[j];
+      const aStats = getClubPlayerStats(a)?.latestSeason;
+      const bStats = getClubPlayerStats(b)?.latestSeason;
+      if (!aStats?.metrics || !bStats?.metrics) continue;
+
+      const pairWeight = Number(a.appearanceWeight ?? 0) * Number(b.appearanceWeight ?? 0);
+      const aMinutes = metricNumber(aStats.metrics.minutes);
+      const bMinutes = metricNumber(bStats.metrics.minutes);
+      const activeMultiplier = Math.min(1, Math.min(aMinutes, bMinutes) / 1200);
+      const sameTeam =
+        aStats.teamId && bStats.teamId
+          ? aStats.teamId === bStats.teamId
+          : normalizeTeamKey(aStats.teamName) === normalizeTeamKey(bStats.teamName);
+      const sameLeague =
+        aStats.leagueId && bStats.leagueId
+          ? aStats.leagueId === bStats.leagueId
+          : normalizeTeamKey(aStats.leagueName) === normalizeTeamKey(bStats.leagueName);
+
+      let pairScore = 0;
+      if (sameTeam) pairScore = 100;
+      else if (sameLeague) pairScore = 26;
+      else pairScore = 6;
+
+      actualClubScore += pairScore * activeMultiplier * pairWeight;
+      weightedPairs += pairWeight;
+      coveredPairs += pairWeight;
+    }
+  }
+
+  if (!weightedPairs || coveredPairs < 3) return 0;
+  const actual = actualClubScore / weightedPairs;
+  const currentClub = Number(team.cohesionBreakdown?.club ?? 0);
+  const coverage = Math.min(1, coveredPairs / 18);
+  const adjustment = (actual - currentClub) * 0.08 * coverage;
+  return Math.max(-3, Math.min(4, adjustment));
 }
 
 function calibratePublicPerformance(team, publicScore) {
@@ -2396,7 +2607,7 @@ function normalizeTeams(teams) {
         players,
         startingXI: normalizeStartingXI(team.startingXI, players, team.name)
       };
-      return withScores(applyPublicPerformance(normalized));
+      return withScores(applyClubDataAdjustments(applyPublicPerformance(normalized)));
     })
   );
 }
@@ -2589,39 +2800,39 @@ function calculateSquadQuality(team) {
   const rotationScore = weightedPlayerScore(rotation, fallback);
   const fringeScore = weightedPlayerScore(fringe, rotationScore);
   const starterCount = starters.length || 1;
-  const eliteShare = starters.filter(isEliteClubPlayer).length / starterCount;
-  const weakShare = starters.filter((player) => Number(player.environmentScore ?? 0) < 76).length / starterCount;
-  const eliteStarterAdjustment = (eliteShare - 0.25) * 12 - Math.max(0, 0.18 - eliteShare) * 6;
+  const weakShare = starters.filter((player) => getPlayerQualityScore(player, fallback) < 76).length / starterCount;
+  const eliteStarterAdjustment = calculateEliteStarterAdjustment(starters);
   const starCoreAdjustment = calculateStarCoreAdjustment(starters);
+  const lineIntegrityAdjustment = calculateLineIntegrityAdjustment(starters, fallback);
   const lowIntensityOldStarters = starters.filter((player) => {
     const age = Number(player.age ?? 0);
     const league = String(player.leagueCode ?? "");
     return age >= 32 && !["ENG", "ESP", "ITA", "GER", "FRA"].includes(league);
   }).length;
 
-  return clamp(
+  const rawQuality =
     starterScore * 0.72 +
-      rotationScore * 0.22 +
-      fringeScore * 0.06 +
+      rotationScore * 0.2 +
+      fringeScore * 0.04 +
       eliteStarterAdjustment -
-      weakShare * 4 +
+      weakShare * 3.5 +
       starCoreAdjustment -
-      lowIntensityOldStarters * 1.4
-  );
+      lowIntensityOldStarters * 1.4 +
+      lineIntegrityAdjustment;
+
+  return clamp(softCapSquadQuality(rawQuality) + calculateClubDataSquadAdjustment(starters, rotation));
 }
 
 function calculateStarCoreAdjustment(starters) {
   const coreScores = starters
     .map((player) => {
-      const environment = Number(player.environmentScore ?? 0);
-      const club = Number(player.clubCompetitiveness ?? environment);
-      const role = Number(player.roleStability ?? environment);
-      const elite = isEliteClubPlayer(player);
-      if (!elite) return 0;
-      const starScore = environment * 0.4 + club * 0.35 + role * 0.25;
-      const starterBonus = role >= 84 ? 1 : role >= 78 ? 0.4 : -1.5;
-      const clubBonus = 3;
-      return clamp(starScore + starterBonus + clubBonus);
+      if (!isEliteClubPlayer(player)) return 0;
+      const role = Number(player.roleStability ?? player.environmentScore ?? 70);
+      if (role < 78) return 0;
+      const starScore = getPlayerQualityScore(player, 0);
+      const starterBonus = role >= 90 ? 3 : role >= 86 ? 1.8 : role >= 82 ? 0.8 : 0;
+      const peakBonus = starScore >= 94 ? 2.4 : starScore >= 91 ? 1.2 : 0;
+      return clamp(starScore + starterBonus + peakBonus);
     })
     .filter((score) => score > 0)
     .sort((a, b) => b - a)
@@ -2629,9 +2840,75 @@ function calculateStarCoreAdjustment(starters) {
 
   if (!coreScores.length) return 0;
   const [first = 0, second = first, third = second] = coreScores;
-  const starIndex = first * 0.5 + second * 0.3 + third * 0.2;
-  const elitePeakBonus = Math.max(0, first - 92) * 0.45 + Math.max(0, second - 90) * 0.25;
-  return Math.min(9, Math.max(0, starIndex - 84) * 0.7 + elitePeakBonus);
+  const starIndex = first * 0.52 + second * 0.3 + third * 0.18;
+  const elitePeakBonus = Math.max(0, first - 92) * 0.6 + Math.max(0, second - 90) * 0.35;
+  return Math.min(10.5, Math.max(0, starIndex - 84) * 0.75 + elitePeakBonus);
+}
+
+function calculateEliteStarterAdjustment(starters) {
+  if (!starters.length) return 0;
+  const roleValues = starters.map(getEliteRoleValue);
+  const eliteDensity = roleValues.reduce((sum, value) => sum + Math.max(0, value), 0) / starters.length;
+  const benchPenalty = roleValues.filter((value) => value < 0).length * 0.8;
+  return (eliteDensity - 0.22) * 8 - Math.max(0, 0.14 - eliteDensity) * 4 - benchPenalty;
+}
+
+function getEliteRoleValue(player) {
+  if (!isEliteClubPlayer(player)) return 0;
+  const role = Number(player.roleStability ?? player.environmentScore ?? 70);
+  if (role >= 90) return 1;
+  if (role >= 84) return 0.75;
+  if (role >= 78) return 0.38;
+  return -0.35;
+}
+
+function calculateLineIntegrityAdjustment(starters, fallback) {
+  const lineScores = ["GK", "DF", "MF", "FW"].map((code) => {
+    const group = starters.filter((player) => (player.positionCode ?? positionCodeFromLabel(player.position)) === code);
+    return weightedPlayerScore(group, fallback);
+  });
+  const weakest = Math.min(...lineScores);
+  const strongest = Math.max(...lineScores);
+  const spread = strongest - weakest;
+  const weakPenalty =
+    weakest < 68 ? -6 :
+    weakest < 72 ? -4 :
+    weakest < 76 ? -2 :
+    weakest >= 84 ? 2 :
+    0;
+  const spreadPenalty = spread > 18 ? -3 : spread > 14 ? -1.5 : 0;
+  return weakPenalty + spreadPenalty;
+}
+
+function softCapSquadQuality(value) {
+  const score = Number(value);
+  if (!Number.isFinite(score)) return 0;
+  if (score <= 90) return score;
+  if (score <= 96) return 90 + (score - 90) * 0.72;
+  return Math.min(99.2, 94.32 + (score - 96) * 0.28);
+}
+
+function calculateClubDataSquadAdjustment(starters, rotation) {
+  const weighted = [
+    ...starters.map((player) => ({ player, weight: 1 })),
+    ...rotation.map((player) => ({ player, weight: 0.4 }))
+  ].filter(({ player }) => getClubPlayerStats(player)?.latestSeason?.metrics);
+
+  if (!weighted.length) return 0;
+
+  const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
+  const adjustmentAverage = weighted.reduce(
+    (sum, item) => sum + getClubPerformanceAdjustment(item.player) * item.weight,
+    0
+  ) / totalWeight;
+  const topAverage = weighted
+    .map(({ player }) => getClubPerformanceAdjustment(player))
+    .sort((a, b) => b - a)
+    .slice(0, 3)
+    .reduce((sum, value, index, arr) => sum + value / arr.length, 0);
+  const coverage = Math.min(1, totalWeight / 11);
+  const adjustment = (adjustmentAverage * 0.14 + topAverage * 0.1) * coverage;
+  return Math.max(-1.6, Math.min(1.6, adjustment));
 }
 
 function isEliteClubPlayer(player) {
@@ -2688,11 +2965,144 @@ function weightedPlayerScore(players, fallback) {
   let total = 0;
   let weight = 0;
   players.forEach((player) => {
-    const playerWeight = Number(player.appearanceWeight ?? 0.2);
-    total += Number(player.environmentScore ?? fallback) * playerWeight;
+    const playerWeight = getPlayerScoreWeight(player);
+    total += getPlayerQualityScore(player, fallback) * playerWeight;
     weight += playerWeight;
   });
   return weight ? total / weight : fallback;
+}
+
+function getPlayerScoreWeight(player) {
+  const nationalRole = Math.max(0.15, Number(player.appearanceWeight ?? 0.2));
+  const role = Number(player.roleStability ?? player.environmentScore ?? 70);
+  const multiplier =
+    role >= 90 ? 1.1 :
+    role >= 84 ? 1 :
+    role >= 78 ? 0.9 :
+    role >= 70 ? 0.76 :
+    0.6;
+  return nationalRole * multiplier * getClubDataWeightMultiplier(player);
+}
+
+function getPlayerQualityScore(player, fallback) {
+  const base = Number(player.environmentScore ?? fallback ?? 0);
+  const league = Number(player.leagueStrength ?? base);
+  const club = Number(player.clubCompetitiveness ?? base);
+  const role = Number(player.roleStability ?? base);
+  const appearance = Number(player.appearanceWeight ?? 0.2);
+  const clubRole = getClubRoleQualityAdjustment(club, role, appearance, isEliteClubPlayer(player));
+  const ageAdjustment = getAgeQualityAdjustment(player);
+  const clubPerformanceAdjustment = getClubPerformanceAdjustment(player);
+  return clamp(base * 0.42 + league * 0.18 + club * 0.2 + role * 0.2 + clubRole + ageAdjustment + clubPerformanceAdjustment);
+}
+
+function getClubDataWeightMultiplier(player) {
+  const metrics = getClubPlayerStats(player)?.latestSeason?.metrics;
+  if (!metrics) return 1;
+  const minutes = metricNumber(metrics.minutes);
+  const starts = metricNumber(metrics.starts);
+  const appearances = metricNumber(metrics.appearances);
+  if (minutes >= 2200 || (appearances >= 20 && starts >= 16)) return 1.08;
+  if (minutes >= 1200 || (appearances >= 15 && starts >= 8)) return 1.03;
+  if (minutes > 0 && minutes < 450) return 0.88;
+  return 1;
+}
+
+function getClubPerformanceAdjustment(player) {
+  const stats = getClubPlayerStats(player);
+  const metrics = stats?.latestSeason?.metrics;
+  if (!metrics) return 0;
+
+  const minutes = metricNumber(metrics.minutes);
+  const starts = metricNumber(metrics.starts);
+  const appearances = metricNumber(metrics.appearances);
+  const rating = metricNumber(metrics.rating);
+  const goals = metricNumber(metrics.goals);
+  const assists = metricNumber(metrics.assists);
+  const keyPasses = metricNumber(metrics.keyPasses);
+  const tackles = metricNumber(metrics.tackles);
+  const interceptions = metricNumber(metrics.interceptions);
+  const redCards = metricNumber(metrics.redCards);
+  const position = player.positionCode ?? positionCodeFromLabel(player.position);
+  const startShare = appearances ? starts / appearances : 0;
+
+  let adjustment =
+    minutes >= 2800 ? 2.4 :
+    minutes >= 2000 ? 1.8 :
+    minutes >= 1200 ? 1 :
+    minutes >= 600 ? 0.2 :
+    minutes > 0 ? -1.2 :
+    0;
+
+  if (appearances >= 10) {
+    if (startShare >= 0.72) adjustment += 1.1;
+    else if (startShare >= 0.45) adjustment += 0.4;
+    else if (startShare < 0.25) adjustment -= 0.8;
+  }
+
+  if (rating >= 7.25) adjustment += 1.8;
+  else if (rating >= 6.95) adjustment += 1;
+  else if (rating >= 6.65) adjustment += 0.3;
+  else if (rating > 0 && rating < 6.35) adjustment -= 0.9;
+
+  const attackingPer90 = per90(goals + assists, minutes);
+  if (position === "FW") {
+    if (attackingPer90 >= 0.7) adjustment += 1.8;
+    else if (attackingPer90 >= 0.45) adjustment += 1;
+    else if (attackingPer90 >= 0.25) adjustment += 0.4;
+  } else if (position === "MF") {
+    if (attackingPer90 >= 0.4) adjustment += 1.2;
+    else if (attackingPer90 >= 0.22) adjustment += 0.6;
+  } else if (position === "DF") {
+    const defensiveActions = per90(tackles + interceptions, minutes);
+    if (defensiveActions >= 3.5) adjustment += 0.8;
+    if (goals + assists >= 5 || keyPasses >= 25) adjustment += 0.4;
+  } else if (position === "GK") {
+    if (minutes >= 2500 && rating >= 6.8) adjustment += 0.8;
+  }
+
+  if (redCards >= 2) adjustment -= 0.8;
+  return Math.max(-3.5, Math.min(5.5, adjustment));
+}
+
+function metricNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function per90(value, minutes) {
+  return minutes > 0 ? (Number(value) / minutes) * 90 : 0;
+}
+
+function getClubRoleQualityAdjustment(club, role, appearance, eliteClub) {
+  let adjustment =
+    club >= 92 ? 2.4 :
+    club >= 86 ? 1.1 :
+    club >= 78 ? 0 :
+    club >= 68 ? -1.6 :
+    -4;
+
+  if (eliteClub && role >= 90 && appearance >= 0.9) adjustment += 3.2;
+  else if (eliteClub && role >= 84 && appearance >= 0.55) adjustment += 1.8;
+  else if (eliteClub && role >= 78) adjustment += 0.5;
+  else if (eliteClub && role < 76) adjustment -= 4;
+  else if (!eliteClub && role >= 88 && appearance >= 0.9 && club >= 78) adjustment += 1.2;
+
+  if (club >= 88 && role < 70) adjustment -= 2.5;
+  if (club < 76 && role >= 86) adjustment += 0.8;
+  return adjustment;
+}
+
+function getAgeQualityAdjustment(player) {
+  const age = Number(player.age ?? 0);
+  const position = player.positionCode ?? positionCodeFromLabel(player.position);
+  if (!age) return 0;
+  if (age <= 20) return -0.8;
+  if (age <= 23) return 0.3;
+  if (age <= 29) return 0.8;
+  if (age <= 32) return position === "GK" ? 0.7 : 0;
+  if (age <= 34) return position === "GK" ? 0.2 : -1.1;
+  return position === "GK" ? -0.7 : -2.4;
 }
 
 function positionCodeFromLabel(position) {
@@ -2764,6 +3174,12 @@ function getTier(score) {
 
 function formatScore(value) {
   return Number(value).toFixed(1);
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return `${Math.round(number * 100)}%`;
 }
 
 function signed(value) {
