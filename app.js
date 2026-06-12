@@ -378,11 +378,14 @@ const LINEUP_API = {
   baseUrl: "/api/v4",
   competition: "WC",
   timeoutMs: 8000,
+  scheduleCacheMaxAgeMs: 2 * 60 * 1000,
   cachePrefix: "lineupCache:",
   get available() {
     return window.location.protocol === "http:" || window.location.protocol === "https:";
   }
 };
+
+const DRAW_PREDICTION_THRESHOLD = 1.5;
 
 const publicData = loadPublicData();
 
@@ -725,7 +728,9 @@ async function loadLiveSchedule() {
   appState.liveScheduleAttempted = true;
   appState.liveScheduleLoading = true;
   try {
-    const data = await lineupApiGet(`/competitions/${LINEUP_API.competition}/matches`);
+    const data = await lineupApiGet(
+      `/competitions/${LINEUP_API.competition}/matches?ts=${Date.now()}`
+    );
     if (data?.matches?.length) {
       appState.liveSchedule = {
         source: "live",
@@ -742,11 +747,15 @@ async function loadLiveSchedule() {
     // 实时获取失败：尝试缓存，再不行就继续用本地 JSON
     try {
       const cached = JSON.parse(localStorage.getItem("wcScheduleCache"));
-      if (cached?.matches?.length) {
+      if (isFreshScheduleCache(cached)) {
         appState.liveSchedule = { ...cached, source: "cache" };
+      } else if (!isFreshScheduleCache(appState.liveSchedule)) {
+        appState.liveSchedule = null;
       }
     } catch {
-      // 缓存也不可用
+      if (!isFreshScheduleCache(appState.liveSchedule)) {
+        appState.liveSchedule = null;
+      }
     }
   } finally {
     appState.liveScheduleLoading = false;
@@ -780,6 +789,56 @@ function getLivePollDelay() {
   return 600000;
 }
 
+function isFreshScheduleCache(cached) {
+  if (!cached?.matches?.length || !cached.fetchedAt) return false;
+  const fetchedAt = new Date(cached.fetchedAt).getTime();
+  return Number.isFinite(fetchedAt) && Date.now() - fetchedAt <= LINEUP_API.scheduleCacheMaxAgeMs;
+}
+
+function getPrediction(teamA, teamB) {
+  if (!teamA || !teamB) return null;
+  const scoreA = Number(teamA.finalScore);
+  const scoreB = Number(teamB.finalScore);
+  if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB)) return null;
+  const diff = scoreA - scoreB;
+  if (Math.abs(diff) <= DRAW_PREDICTION_THRESHOLD) {
+    return { outcome: "draw", label: "平局" };
+  }
+  return diff > 0
+    ? { outcome: "home", label: teamA.name }
+    : { outcome: "away", label: teamB.name };
+}
+
+function getPredictionText(teamA, teamB) {
+  const prediction = getPrediction(teamA, teamB);
+  if (!prediction) return "暂无模型评分";
+  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${prediction.label}`;
+}
+
+function getPredictionBadge(match, teamA, teamB) {
+  if (!match.resultFinal) return "";
+  const prediction = getPrediction(teamA, teamB);
+  const actual = getScoreOutcome(match.score);
+  if (!prediction || !actual || prediction.outcome !== actual) return "";
+  return prediction.outcome === "draw" ? "平局命中" : "预测命中";
+}
+
+function getMissingRatingLabel(match, teamA, teamB) {
+  const missing = [];
+  if (!teamA) missing.push(formatTeamName(match.team1));
+  if (!teamB) missing.push(formatTeamName(match.team2));
+  return missing.length ? `缺少模型评分：${missing.join("、")}` : "";
+}
+
+function getScoreOutcome(scoreText) {
+  const match = /^\s*(\d+)\s*[:：]\s*(\d+)\s*$/.exec(String(scoreText ?? ""));
+  if (!match) return "";
+  const home = Number(match[1]);
+  const away = Number(match[2]);
+  if (home === away) return "draw";
+  return home > away ? "home" : "away";
+}
+
 function renderLiveBanner() {
   if (!els.liveBanner) return;
   const featuredMatches = getFeaturedBannerMatches();
@@ -801,8 +860,7 @@ function renderLiveBanner() {
 
     let predictText = "暂无模型评分";
     if (teamA && teamB) {
-      const favored = teamA.finalScore >= teamB.finalScore ? teamA : teamB;
-      predictText = `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${favored.name}`;
+      predictText = getPredictionText(teamA, teamB);
     }
 
     const card = document.createElement("button");
@@ -1101,6 +1159,7 @@ async function lineupApiGet(path) {
   const timer = setTimeout(() => controller.abort(), LINEUP_API.timeoutMs);
   try {
     const response = await fetch(`${LINEUP_API.baseUrl}${path}`, {
+      cache: "no-store",
       signal: controller.signal
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1260,8 +1319,15 @@ function renderSchedule() {
   }
 
   visible.forEach((match) => {
+    const teamA = findTeamByName(match.team1);
+    const teamB = findTeamByName(match.team2);
+    const predictionBadge = getPredictionBadge(match, teamA, teamB);
+    const missingRatingLabel = getMissingRatingLabel(match, teamA, teamB);
     const row = document.createElement("article");
     row.className = "match-row";
+    if (missingRatingLabel) {
+      row.title = missingRatingLabel;
+    }
     row.innerHTML = `
       <div class="match-date">
         <strong>${escapeHtml(match.date)}</strong>
@@ -1277,12 +1343,12 @@ function renderSchedule() {
       </div>
       <div class="match-side">
         <span class="match-pill">${escapeHtml(match.badge)}</span>
+        ${predictionBadge ? `<span class="match-pill match-pill-success">${escapeHtml(predictionBadge)}</span>` : ""}
+        ${missingRatingLabel ? `<span class="match-pill match-pill-muted">缺少模型评分</span>` : ""}
         <span>${escapeHtml(match.place)}</span>
       </div>
     `;
 
-    const teamA = findTeamByName(match.team1);
-    const teamB = findTeamByName(match.team2);
     if (teamA && teamB) {
       row.classList.add("clickable");
       row.title = "点击查看两队实力对比";
@@ -1596,6 +1662,7 @@ function getRecentMatchRows() {
       score: match.liveScore ?? "vs",
       meta: ["世界杯", match.round, match.group].filter(Boolean).join(" · "),
       badge: "世界杯",
+      resultFinal: match.status === "FINISHED",
       group: match.group ?? "",
       place: match.ground || "地点未标注",
       searchText: [match.date, match.team1, match.team2, match.round, match.group, match.ground].join(" ")
@@ -1611,6 +1678,7 @@ function getRecentMatchRows() {
       score: `${match.home_score ?? "-"} : ${match.away_score ?? "-"}`,
       meta: match.tournament ?? "未标注赛事",
       badge: isFriendly(match) ? "友谊赛" : "正式/杯赛",
+      resultFinal: true,
       group: "",
       place: [match.city, match.country].filter(Boolean).join(" · ") || "地点未标注",
       searchText: [
@@ -1643,6 +1711,7 @@ function getFullScheduleRows() {
       score: match.liveScore ?? "vs",
       meta: [match.round, match.group].filter(Boolean).join(" · ") || "淘汰赛",
       badge: match.group ? match.group.replace("Group ", "小组 ") : match.round ?? "赛程",
+      resultFinal: match.status === "FINISHED",
       group: match.group ?? "",
       place: match.ground ?? "场地未标注",
       searchText: [
@@ -2037,6 +2106,7 @@ function normalizeTeamKey(value) {
     "united states of america": "united states",
     "cote d ivoire": "ivory coast",
     "czechia": "czech republic",
+    "bosnia herzegovina": "bosnia and herzegovina",
     "congo dr": "dr congo",
     "democratic republic of congo": "dr congo",
     "korea republic": "south korea",

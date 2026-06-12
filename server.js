@@ -26,7 +26,8 @@ const MIME = {
   ".md": "text/markdown; charset=utf-8"
 };
 
-// 简单的代理响应缓存，减少免费层 API 配额消耗（60 秒）
+// 简单的代理响应缓存，减少免费层 API 配额消耗（60 秒）。
+// 比分接口需要贴近实时，带 ts= 的请求不走缓存。
 const proxyCache = new Map();
 const PROXY_CACHE_MS = 60 * 1000;
 
@@ -37,10 +38,13 @@ async function handleApiProxy(req, res, url) {
     return;
   }
 
-  const target = UPSTREAM + url.pathname.replace(/^\/api/, "") + url.search;
+  const upstreamPath = url.pathname.replace(/^\/api/, "");
+  const bypassCache = url.searchParams.has("ts");
+  url.searchParams.delete("ts");
+  const target = UPSTREAM + upstreamPath + url.search;
 
   const cached = proxyCache.get(target);
-  if (cached && Date.now() - cached.at < PROXY_CACHE_MS) {
+  if (!bypassCache && cached && Date.now() - cached.at < PROXY_CACHE_MS) {
     res.writeHead(cached.status, cached.headers);
     res.end(cached.body);
     return;
@@ -56,7 +60,7 @@ async function handleApiProxy(req, res, url) {
       "Content-Type": upstream.headers.get("content-type") || "application/json",
       "Cache-Control": "no-store"
     };
-    if (upstream.ok) {
+    if (!bypassCache && upstream.ok) {
       proxyCache.set(target, { at: Date.now(), status: upstream.status, headers, body });
     }
     res.writeHead(upstream.status, headers);

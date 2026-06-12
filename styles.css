@@ -547,6 +547,16 @@ h3 {
   font-weight: 900;
 }
 
+.match-pill-success {
+  background: #e8f1ea;
+  color: #1f7a4d;
+}
+
+.match-pill-muted {
+  background: #f1f0ed;
+  color: var(--muted);
+}
+
 .dimension-bars {
   display: grid;
   gap: 12px;
@@ -823,7 +833,6 @@ th:last-child {
 }
 
 .lineup-dialog {
-  display: flex;
   flex-direction: column;
   width: min(760px, calc(100vw - 28px));
   max-height: min(760px, calc(100vh - 28px));
@@ -833,6 +842,14 @@ th:last-child {
   background: var(--surface);
   color: var(--ink);
   box-shadow: 0 28px 70px rgba(23, 32, 27, 0.22);
+}
+
+.lineup-dialog:not([open]) {
+  display: none;
+}
+
+.lineup-dialog[open] {
+  display: flex;
 }
 
 /* 头部固定，内容区随内容增多滚动（避免首发名单撑破弹窗） */
