@@ -327,6 +327,7 @@ const tournamentTeamSeeds = [
 const COEFFICIENT_STORAGE_KEY = "worldCupStrengthCoefficients";
 const STAGE_LOAD_STORAGE_KEY = "worldCupStrengthStageLoad";
 const FINISHED_HOME_RESULTS_STORAGE_KEY = "worldCupFinishedPredictionResults";
+const ODDS_STORAGE_KEY = "wcOddsCache";
 
 const scoreComponentConfig = [
   ["squadQuality", "阵容质量", 45, "#1f7a4d"],
@@ -389,7 +390,8 @@ const LINEUP_API = {
 
 const ODDS_API = {
   endpoint: "/api/odds/worldcup",
-  refreshMs: 3 * 60 * 1000,
+  refreshMs: 10 * 60 * 1000,
+  cacheMaxAgeMs: 10 * 60 * 1000,
   get available() {
     return window.location.protocol === "http:" || window.location.protocol === "https:";
   }
@@ -633,6 +635,13 @@ async function loadLiveSchedule() {
 
 async function loadOdds() {
   if (!ODDS_API.available || appState.oddsLoading) return;
+  const cached = readOddsCache();
+  if (isFreshOddsCache(cached)) {
+    appState.odds = { ...cached, source: cached.source ?? "cache" };
+    scheduleNextOddsLoad(getOddsCacheRemainingMs(cached));
+    return;
+  }
+
   appState.oddsLoading = true;
   try {
     const response = await fetch(`${ODDS_API.endpoint}?ts=${Date.now()}`, { cache: "no-store" });
@@ -643,13 +652,48 @@ async function loadOdds() {
       fetchedAt: new Date().toISOString(),
       matches: Array.isArray(data) ? data : data?.matches ?? []
     };
+    writeOddsCache(appState.odds);
   } catch {
-    appState.odds = appState.odds?.matches?.length ? appState.odds : null;
+    appState.odds = appState.odds?.matches?.length
+      ? appState.odds
+      : cached?.matches?.length ? { ...cached, source: cached.source ?? "cache-stale" } : null;
   } finally {
     appState.oddsLoading = false;
-    clearTimeout(appState.oddsPollTimer);
-    appState.oddsPollTimer = setTimeout(loadOdds, ODDS_API.refreshMs);
+    scheduleNextOddsLoad(ODDS_API.refreshMs);
   }
+}
+
+function scheduleNextOddsLoad(delayMs) {
+  clearTimeout(appState.oddsPollTimer);
+  appState.oddsPollTimer = setTimeout(loadOdds, Math.max(30000, Number(delayMs) || ODDS_API.refreshMs));
+}
+
+function readOddsCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ODDS_STORAGE_KEY));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOddsCache(odds) {
+  if (!odds?.matches?.length) return;
+  try {
+    localStorage.setItem(ODDS_STORAGE_KEY, JSON.stringify(odds));
+  } catch {
+    // localStorage 不可用时只使用当前会话数据
+  }
+}
+
+function getOddsCacheRemainingMs(cached) {
+  const fetchedAt = new Date(cached?.fetchedAt ?? 0).getTime();
+  if (!Number.isFinite(fetchedAt)) return 0;
+  return ODDS_API.cacheMaxAgeMs - (Date.now() - fetchedAt);
+}
+
+function isFreshOddsCache(cached) {
+  return Boolean(cached?.matches?.length) && getOddsCacheRemainingMs(cached) > 0;
 }
 
 // 轮询节奏：

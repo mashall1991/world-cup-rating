@@ -35,7 +35,7 @@ const MIME = {
 // 比分接口需要贴近实时，带 ts= 的请求不走缓存。
 const proxyCache = new Map();
 const PROXY_CACHE_MS = 60 * 1000;
-const ODDS_CACHE_MS = 3 * 60 * 1000;
+const ODDS_CACHE_MS = 10 * 60 * 1000;
 const FIXTURE_TEAM_CACHE_MS = 10 * 60 * 1000;
 
 function sendJson(res, status, payload) {
