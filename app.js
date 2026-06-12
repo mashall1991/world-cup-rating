@@ -385,6 +385,14 @@ const LINEUP_API = {
   }
 };
 
+const ODDS_API = {
+  endpoint: "/api/odds/worldcup",
+  refreshMs: 3 * 60 * 1000,
+  get available() {
+    return window.location.protocol === "http:" || window.location.protocol === "https:";
+  }
+};
+
 const DRAW_PREDICTION_THRESHOLD = 1.5;
 
 const publicData = loadPublicData();
@@ -404,7 +412,9 @@ const appState = {
   scheduleGroup: "all",
   liveSchedule: null,
   liveScheduleLoading: false,
-  liveScheduleAttempted: false
+  liveScheduleAttempted: false,
+  odds: null,
+  oddsLoading: false
 };
 
 const els = {
@@ -569,6 +579,7 @@ function init() {
   bindSheetDrag();
   render();
   loadLiveSchedule();
+  loadOdds();
 }
 
 // ---- 移动端评分详情底部浮层 ----
@@ -772,6 +783,29 @@ async function loadLiveSchedule() {
   }
 }
 
+async function loadOdds() {
+  if (!ODDS_API.available || appState.oddsLoading) return;
+  appState.oddsLoading = true;
+  try {
+    const response = await fetch(`${ODDS_API.endpoint}?ts=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    appState.odds = {
+      source: data?.source ?? "the-odds-api",
+      fetchedAt: new Date().toISOString(),
+      matches: Array.isArray(data) ? data : data?.matches ?? []
+    };
+  } catch {
+    appState.odds = appState.odds?.matches?.length ? appState.odds : null;
+  } finally {
+    appState.oddsLoading = false;
+    renderSchedule();
+    renderLiveBanner();
+    clearTimeout(appState.oddsPollTimer);
+    appState.oddsPollTimer = setTimeout(loadOdds, ODDS_API.refreshMs);
+  }
+}
+
 // 轮询节奏：
 // - 有比赛进行中/中场 → 30s，尽量贴近实时比分
 // - 今日有即将开赛或刚结束的比赛 → 60s，及时翻转状态
@@ -830,6 +864,63 @@ function getMissingRatingLabel(match, teamA, teamB) {
   return missing.length ? `缺少模型评分：${missing.join("、")}` : "";
 }
 
+function getMatchOdds(match) {
+  const oddsMatches = appState.odds?.matches ?? [];
+  const team1Key = normalizeTeamKey(match.team1);
+  const team2Key = normalizeTeamKey(match.team2);
+  if (!team1Key || !team2Key) return null;
+
+  for (const oddsMatch of oddsMatches) {
+    const homeKey = normalizeTeamKey(oddsMatch.home_team);
+    const awayKey = normalizeTeamKey(oddsMatch.away_team);
+    const sameOrder = homeKey === team1Key && awayKey === team2Key;
+    const reverseOrder = homeKey === team2Key && awayKey === team1Key;
+    if (!sameOrder && !reverseOrder) continue;
+
+    const h2h = getFirstH2hMarket(oddsMatch);
+    if (!h2h) return null;
+    const homePrice = getOutcomePrice(h2h, oddsMatch.home_team);
+    const awayPrice = getOutcomePrice(h2h, oddsMatch.away_team);
+    const drawPrice = getOutcomePrice(h2h, "Draw");
+    return {
+      home: sameOrder ? homePrice : awayPrice,
+      draw: drawPrice,
+      away: sameOrder ? awayPrice : homePrice,
+      bookmaker: h2h.bookmaker,
+      updatedAt: oddsMatch.bookmakers?.[0]?.last_update ?? oddsMatch.commence_time
+    };
+  }
+
+  return null;
+}
+
+function getFirstH2hMarket(oddsMatch) {
+  for (const bookmaker of oddsMatch.bookmakers ?? []) {
+    const market = (bookmaker.markets ?? []).find((item) => item.key === "h2h" && item.outcomes?.length);
+    if (market) return { ...market, bookmaker: bookmaker.title ?? bookmaker.key ?? "Odds" };
+  }
+  return null;
+}
+
+function getOutcomePrice(market, name) {
+  const key = normalizeTeamKey(name);
+  const outcome = (market.outcomes ?? []).find((item) => normalizeTeamKey(item.name) === key);
+  return Number.isFinite(Number(outcome?.price)) ? Number(outcome.price) : null;
+}
+
+function renderOddsText(match) {
+  const odds = getMatchOdds(match);
+  if (!odds) return "";
+  const parts = [
+    ["主", odds.home],
+    ["平", odds.draw],
+    ["客", odds.away]
+  ]
+    .filter(([, value]) => value !== null)
+    .map(([label, value]) => `${label} ${Number(value).toFixed(2)}`);
+  return parts.length ? `市场赔率 ${parts.join(" / ")}` : "";
+}
+
 function getScoreOutcome(scoreText) {
   const match = /^\s*(\d+)\s*[:：]\s*(\d+)\s*$/.exec(String(scoreText ?? ""));
   if (!match) return "";
@@ -857,6 +948,7 @@ function renderLiveBanner() {
     const teamB = findTeamByName(local.team2);
     const stageText = [local.round, local.group].filter(Boolean).join(" · ");
     const bannerStatus = getBannerMatchStatus(local);
+    const oddsText = renderOddsText(local);
 
     let predictText = "暂无模型评分";
     if (teamA && teamB) {
@@ -878,6 +970,7 @@ function renderLiveBanner() {
       </span>
       <span class="live-meta">${escapeHtml([local.date, local.time, stageText || "世界杯"].filter(Boolean).join(" · "))}</span>
       <span class="live-predict">${escapeHtml(predictText)}</span>
+      ${oddsText ? `<span class="live-odds">${escapeHtml(oddsText)}</span>` : ""}
     `;
 
     if (teamA && teamB) {
@@ -1323,6 +1416,7 @@ function renderSchedule() {
     const teamB = findTeamByName(match.team2);
     const predictionBadge = getPredictionBadge(match, teamA, teamB);
     const missingRatingLabel = getMissingRatingLabel(match, teamA, teamB);
+    const oddsText = renderOddsText(match);
     const row = document.createElement("article");
     row.className = "match-row";
     if (missingRatingLabel) {
@@ -1340,6 +1434,7 @@ function renderSchedule() {
           <span>${escapeHtml(formatTeamName(match.team2))}</span>
         </div>
         <div class="match-meta">${escapeHtml(match.meta)}</div>
+        ${oddsText ? `<div class="match-odds">${escapeHtml(oddsText)}</div>` : ""}
       </div>
       <div class="match-side">
         <span class="match-pill">${escapeHtml(match.badge)}</span>
@@ -2064,22 +2159,68 @@ function buildPublicPerformanceIndex(recentResults) {
 
 function applyPublicPerformance(team) {
   const index = appState.publicPerformance;
-  if (!index) return team;
-
-  const performance = index.teams.get(normalizeTeamKey(team.nameEn));
-  if (!performance) return team;
+  const playerParticipation = calculatePlayerParticipationStrength(team);
+  const performance = index?.teams.get(normalizeTeamKey(team.nameEn));
+  const calibratedTeamResults = performance
+    ? calibratePublicPerformance(team, performance.score)
+    : Number(team.dimensions?.performance ?? playerParticipation);
+  const blendedPerformance = clamp(playerParticipation * 0.7 + calibratedTeamResults * 0.3);
 
   return {
     ...team,
     dimensions: {
       ...team.dimensions,
-      performance: performance.score
+      performance: blendedPerformance
     },
     performanceBreakdown: {
-      ...performance.breakdown
+      ...(performance?.breakdown ?? {}),
+      playerParticipation,
+      teamResults: calibratedTeamResults,
+      rawPublicScore: performance?.score ?? null,
+      blendedScore: blendedPerformance
     },
-    publicPerformance: performance
+    publicPerformance: performance ?? null
   };
+}
+
+function calculatePlayerParticipationStrength(team) {
+  const players = Array.isArray(team.players) ? team.players : [];
+  if (!players.length) return Number(team.dimensions?.environment ?? 0);
+
+  let total = 0;
+  let weight = 0;
+  players.forEach((player) => {
+    const roleWeight = Math.max(0.15, Number(player.appearanceWeight ?? 0.2));
+    const environment = Number(player.environmentScore ?? team.dimensions?.environment ?? 0);
+    const league = Number(player.leagueStrength ?? environment);
+    const club = Number(player.clubCompetitiveness ?? environment);
+    const stability = Number(player.roleStability ?? environment);
+    const participationScore = clamp(
+      environment * 0.35 +
+        league * 0.25 +
+        club * 0.25 +
+        stability * 0.15
+    );
+    total += participationScore * roleWeight;
+    weight += roleWeight;
+  });
+
+  return weight ? clamp(total / weight) : Number(team.dimensions?.environment ?? 0);
+}
+
+function calibratePublicPerformance(team, publicScore) {
+  const score = Number(publicScore);
+  if (!Number.isFinite(score)) return Number(team.dimensions?.performance ?? 0);
+
+  const baseline = getConfederationBaseline(team.confederation);
+  const prior = clamp(
+    Number(team.dimensions?.environment ?? baseline.environment) * 0.55 +
+      Number(team.dimensions?.cohesion ?? baseline.cohesion) * 0.15 +
+      Number(team.dimensions?.age ?? baseline.age) * 0.1 +
+      Number(baseline.performance ?? 56) * 0.2
+  );
+  const cappedDelta = Math.max(-12, Math.min(12, score - prior));
+  return clamp(prior + cappedDelta * 0.65);
 }
 
 function isFriendly(match) {

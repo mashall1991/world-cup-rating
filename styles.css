@@ -527,6 +527,12 @@ h3 {
   white-space: nowrap;
 }
 
+.match-odds {
+  color: #7b2f35;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .match-side {
   display: grid;
   justify-items: end;
@@ -1071,6 +1077,13 @@ th:last-child {
   white-space: nowrap;
 }
 
+.live-odds {
+  font-size: 12px;
+  font-weight: 800;
+  color: #7b2f35;
+  white-space: nowrap;
+}
+
 @keyframes livePulse {
   0%,
   100% {
@@ -1547,6 +1560,7 @@ th:last-child {
   }
 
   .live-predict,
+  .live-odds,
   .live-meta {
     white-space: normal;
   }
