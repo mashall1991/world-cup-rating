@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import {
   appState, getRecentMatchRows, getFullScheduleRows, matchMatchesScheduleFilters,
   getWorldCupMatches, getScheduleSourceLabel, formatGeneratedAt, findTeamByName,
@@ -7,8 +7,6 @@ import {
   getLineupAdjustedPair, renderOddsText
 } from "../lib/engine.js";
 import { openCompare } from "../lib/ui.js";
-
-const searchInput = ref("");
 
 const groups = computed(() => {
   void appState.liveSchedule;
@@ -56,11 +54,6 @@ const rows = computed(() => {
   };
 });
 
-function onSearch(event) {
-  searchInput.value = event.target.value;
-  appState.scheduleQuery = event.target.value.trim().toLowerCase();
-}
-
 function onRowClick(item) {
   if (item.teamA && item.teamB) openCompare(item.teamA, item.teamB, item.match);
 }
@@ -84,10 +77,6 @@ function onRowClick(item) {
         <button :class="{ active: !isFull }" type="button" @click="appState.scheduleMode = 'recent'">近期比赛</button>
         <button :class="{ active: isFull }" type="button" @click="appState.scheduleMode = 'full'">完整赛程</button>
       </div>
-      <label class="search-box">
-        <span aria-hidden="true">⌕</span>
-        <input :value="searchInput" type="search" placeholder="搜索球队、赛事、城市" autocomplete="off" @input="onSearch" />
-      </label>
       <label class="select-box">
         <span>小组</span>
         <select v-model="appState.scheduleGroup" :disabled="!isFull">

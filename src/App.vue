@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted } from "vue";
 import { appState, loadLiveSchedule, loadOdds } from "./lib/engine.js";
 import LiveBanner from "./components/LiveBanner.vue";
 import TeamList from "./components/TeamList.vue";
@@ -17,13 +17,6 @@ const sortOptions = [
   ["cohesionContinuity", "协同连续性"],
   ["ageLoad", "年龄耐久"]
 ];
-
-const searchInput = ref("");
-
-function onSearch(event) {
-  searchInput.value = event.target.value;
-  appState.query = event.target.value.trim().toLowerCase();
-}
 
 function setView(view) {
   appState.view = view;
@@ -56,10 +49,6 @@ onMounted(() => {
 
     <template v-if="appState.view !== 'schedule'">
       <section class="controls" aria-label="筛选与排序">
-        <label class="search-box">
-          <span aria-hidden="true">⌕</span>
-          <input :value="searchInput" type="search" placeholder="搜索队伍、球员、俱乐部" autocomplete="off" @input="onSearch" />
-        </label>
         <label class="select-box">
           <span>排序</span>
           <select v-model="appState.sortMode">
