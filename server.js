@@ -36,6 +36,7 @@ const MIME = {
 const proxyCache = new Map();
 const PROXY_CACHE_MS = 60 * 1000;
 const ODDS_CACHE_MS = 3 * 60 * 1000;
+const FIXTURE_TEAM_CACHE_MS = 10 * 60 * 1000;
 
 function sendJson(res, status, payload) {
   res.writeHead(status, {
@@ -51,6 +52,61 @@ function buildApiFootballParams(url, defaults = {}) {
     if (key !== "ts") params.set(key, value);
   }
   return params;
+}
+
+function buildWorldCupFixtureParams() {
+  return new URLSearchParams({
+    league: API_FOOTBALL_LEAGUE,
+    season: API_FOOTBALL_SEASON,
+    timezone: API_FOOTBALL_TIMEZONE
+  });
+}
+
+async function fetchApiFootballJson(pathname, params) {
+  const query = params?.toString();
+  const target = `${UPSTREAM}${pathname}${query ? `?${query}` : ""}`;
+  const upstream = await fetch(target, {
+    headers: { "x-apisports-key": TOKEN },
+    signal: AbortSignal.timeout(10000)
+  });
+  const data = await upstream.json().catch(() => ({}));
+  return { ok: upstream.ok, status: upstream.status, data };
+}
+
+async function getFixtureTeamMap() {
+  const cacheKey = `fixtures:${API_FOOTBALL_LEAGUE}:${API_FOOTBALL_SEASON}:${API_FOOTBALL_TIMEZONE}`;
+  const cached = proxyCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < FIXTURE_TEAM_CACHE_MS) return cached.map;
+
+  const { ok, data } = await fetchApiFootballJson("/fixtures", buildWorldCupFixtureParams());
+  if (!ok || !Array.isArray(data.response)) return new Map();
+
+  const map = new Map();
+  for (const item of data.response) {
+    const fixtureId = item?.fixture?.id;
+    if (!fixtureId) continue;
+    map.set(Number(fixtureId), {
+      home_team: item.teams?.home?.name ?? "",
+      away_team: item.teams?.away?.name ?? "",
+      fixture_date: item.fixture?.date ?? ""
+    });
+  }
+  proxyCache.set(cacheKey, { at: Date.now(), map });
+  return map;
+}
+
+function enrichOddsWithFixtureTeams(matches, fixtureTeamMap) {
+  return matches.map((match) => {
+    const fixtureId = Number(match?.fixture?.id);
+    const fixtureTeams = fixtureTeamMap.get(fixtureId);
+    if (!fixtureTeams) return match;
+    return {
+      ...match,
+      home_team: match.home_team ?? fixtureTeams.home_team,
+      away_team: match.away_team ?? fixtureTeams.away_team,
+      fixture_date: match.fixture_date ?? fixtureTeams.fixture_date
+    };
+  });
 }
 
 async function handleApiFootballProxy(req, res, url) {
@@ -69,11 +125,7 @@ async function handleApiFootballProxy(req, res, url) {
   let params = buildApiFootballParams(url);
   if (upstreamPath === "/worldcup/fixtures") {
     upstreamPath = "/fixtures";
-    params = buildApiFootballParams(url, {
-      league: API_FOOTBALL_LEAGUE,
-      season: API_FOOTBALL_SEASON,
-      timezone: API_FOOTBALL_TIMEZONE
-    });
+    params = buildApiFootballParams(url, Object.fromEntries(buildWorldCupFixtureParams()));
   }
 
   const bypassCache = url.searchParams.has("ts");
@@ -151,10 +203,16 @@ async function handleOddsProxy(req, res) {
       if (Array.isArray(data.response)) matches.push(...data.response);
       if (!upstream.ok || !paging || Number(paging.current) >= Number(paging.total ?? 1)) break;
     }
+    let enrichedMatches = matches;
+    try {
+      enrichedMatches = enrichOddsWithFixtureTeams(matches, await getFixtureTeamMap());
+    } catch {
+      // 赔率本身可用时，不因为补主客队名失败而丢掉赔率响应。
+    }
     const body = Buffer.from(JSON.stringify({
       source: "api-football",
       fetchedAt: new Date().toISOString(),
-      matches,
+      matches: enrichedMatches,
       paging,
       errors
     }));
