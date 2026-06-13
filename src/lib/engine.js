@@ -331,6 +331,82 @@ const ODDS_STORAGE_KEY = "wcOddsCache";
 const ODDS_STORAGE_VERSION = 4;
 const ODDS_DEBUG_STORAGE_KEY = "wcOddsDebug";
 
+const VENUE_ZH_LABELS = Object.freeze({
+  "Mexico City": "墨西哥城",
+  "Guadalajara (Zapopan)": "瓜达拉哈拉（萨波潘）",
+  "Monterrey": "蒙特雷",
+  "Monterrey (Guadalupe)": "蒙特雷（瓜达卢佩）",
+  "Atlanta": "亚特兰大",
+  "Boston": "波士顿",
+  "Boston (Foxborough)": "波士顿（福克斯伯勒）",
+  "Dallas": "达拉斯",
+  "Dallas (Arlington)": "达拉斯（阿灵顿）",
+  "Houston": "休斯敦",
+  "Kansas City": "堪萨斯城",
+  "Los Angeles": "洛杉矶",
+  "Los Angeles (Inglewood)": "洛杉矶（英格尔伍德）",
+  "Miami": "迈阿密",
+  "Miami (Miami Gardens)": "迈阿密（迈阿密花园）",
+  "New York/New Jersey": "纽约/新泽西",
+  "New York/New Jersey (East Rutherford)": "纽约/新泽西（东卢瑟福）",
+  "Philadelphia": "费城",
+  "San Francisco Bay Area": "旧金山湾区",
+  "San Francisco Bay Area (Santa Clara)": "旧金山湾区（圣克拉拉）",
+  "Seattle": "西雅图",
+  "Toronto": "多伦多",
+  "Vancouver": "温哥华",
+  "Orlando": "奥兰多",
+  "Leiria": "莱里亚",
+  "Malé": "马累",
+  "Casablanca": "卡萨布兰卡",
+  "Auburn": "奥本",
+  "Yerevan": "埃里温",
+  "Szombathely": "松博特海伊",
+  "Minsk": "明斯克",
+  "Phnom Penh": "金边",
+  "Hangzhou": "杭州",
+  "Orléans": "奥尔良",
+  "Marrakesh": "马拉喀什",
+  "Dire Dawa": "德雷达瓦",
+  "Debrecen": "德布勒森",
+  "Jakarta": "雅加达",
+  "Bishkek": "比什凯克",
+  "San Antonio": "圣安东尼奥",
+  "Hisor": "希索尔",
+  "Manila": "马尼拉",
+  "United States": "美国",
+  "Portugal": "葡萄牙",
+  "Maldives": "马尔代夫",
+  "Morocco": "摩洛哥",
+  "Armenia": "亚美尼亚",
+  "Hungary": "匈牙利",
+  "Belarus": "白俄罗斯",
+  "Cambodia": "柬埔寨",
+  "China": "中国",
+  "France": "法国",
+  "Ethiopia": "埃塞俄比亚",
+  "Indonesia": "印度尼西亚",
+  "Kyrgyzstan": "吉尔吉斯斯坦",
+  "Tajikistan": "塔吉克斯坦",
+  "Philippines": "菲律宾",
+  "Estadio Azteca": "阿兹特克体育场",
+  "Estadio Guadalajara": "瓜达拉哈拉体育场",
+  "Estadio BBVA": "蒙特雷 BBVA 体育场",
+  "Mercedes-Benz Stadium": "梅赛德斯-奔驰体育场",
+  "Gillette Stadium": "吉列体育场",
+  "AT&T Stadium": "AT&T 体育场",
+  "NRG Stadium": "NRG 体育场",
+  "Arrowhead Stadium": "箭头体育场",
+  "SoFi Stadium": "SoFi 体育场",
+  "Hard Rock Stadium": "硬石体育场",
+  "MetLife Stadium": "大都会人寿体育场",
+  "Lincoln Financial Field": "林肯金融球场",
+  "Levi's Stadium": "李维斯体育场",
+  "Lumen Field": "流明球场",
+  "BMO Field": "BMO 球场",
+  "BC Place": "BC Place 体育场"
+});
+
 const scoreComponentConfig = [
   ["squadQuality", "阵容质量", 45, "#1f7a4d"],
   ["recentMatchRating", "近期比赛强度", 30, "#315f9f"],
@@ -1681,7 +1757,7 @@ function getRecentMatchRows() {
       badge: "世界杯",
       resultFinal: match.status === "FINISHED",
       group: match.group ?? "",
-      place: match.ground || "地点未标注",
+      place: formatVenueName(match.ground),
       searchText: [match.date, match.team1, match.team2, match.round, match.group, match.ground].join(" ")
     }));
 
@@ -1697,7 +1773,7 @@ function getRecentMatchRows() {
       badge: isFriendly(match) ? "友谊赛" : "正式/杯赛",
       resultFinal: true,
       group: "",
-      place: [match.city, match.country].filter(Boolean).join(" · ") || "地点未标注",
+      place: formatVenueName([match.city, match.country].filter(Boolean).join(" · ")),
       searchText: [
         match.date,
         match.home_team,
@@ -1730,7 +1806,7 @@ function getFullScheduleRows() {
       badge: match.group ? match.group.replace("Group ", "小组 ") : match.round ?? "赛程",
       resultFinal: match.status === "FINISHED",
       group: match.group ?? "",
-      place: match.ground ?? "场地未标注",
+      place: formatVenueName(match.ground),
       searchText: [
         match.date,
         match.time,
@@ -1773,6 +1849,16 @@ function getScheduleSourceLabel() {
 function formatTeamName(name) {
   const team = appState.teams.find((item) => normalizeTeamKey(item.nameEn) === normalizeTeamKey(name));
   return team ? `${team.flag} ${team.name}` : String(name ?? "--");
+}
+
+function formatVenueName(name) {
+  const value = String(name ?? "").trim();
+  if (!value) return "地点未标注";
+  if (VENUE_ZH_LABELS[value]) return VENUE_ZH_LABELS[value];
+  if (value.includes(" · ")) {
+    return value.split(" · ").map((part) => VENUE_ZH_LABELS[part] ?? part).join(" · ");
+  }
+  return value;
 }
 
 // ---- 北京时间 (UTC+8) 显示 ----
@@ -3029,6 +3115,6 @@ export {
   getBannerMatchStatus, isMatchFinished, normalizeTeams, refreshTeamScores, rankTeams,
   getVisibleTeams, getSelectedTeam, findTeamByName, formatTeamName, getRecentMatchRows,
   getFullScheduleRows, matchMatchesScheduleFilters, getWorldCupMatches, getScheduleSourceLabel,
-  formatGeneratedAt, tryLiveLineup, saveLineupCache, readLineupCache, ensureTeamLineup, recomputeWithLineup,
+  formatGeneratedAt, formatVenueName, tryLiveLineup, saveLineupCache, readLineupCache, ensureTeamLineup, recomputeWithLineup,
   getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, zhPlayerName, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey
 };

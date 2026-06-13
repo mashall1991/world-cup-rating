@@ -47,7 +47,7 @@ onBeforeUnmount(() => clearInterval(timeThemeTimer));
         <span class="brand-mark">⚽️</span>
         <div>
           <p class="eyebrow">World Cup 2026 · Competitive Strength</p>
-          <h1>世界杯队伍实力评估</h1>
+          <h1>世界杯大聪明</h1>
         </div>
       </div>
       <nav class="app-nav" aria-label="页面切换">

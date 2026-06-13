@@ -10,7 +10,9 @@ import { openCompare } from "../lib/ui.js";
 
 const updatedText = computed(() => {
   const updatedAt = appState.liveSchedule?.fetchedAt ?? appState.publicData?.manifest?.generated_at;
-  return `${formatGeneratedAt(updatedAt)} · ${getScheduleSourceLabel()}`;
+  const sourceLabel = getScheduleSourceLabel().replace("本地数据", "本地").replace("实时 · ", "");
+  const updatedLabel = formatGeneratedAt(updatedAt).replace(" 北京时间", "").replace(/^(\d{4})-/, "");
+  return `${updatedLabel} · ${sourceLabel} · UTC+8`;
 });
 
 const isFull = computed(() => appState.scheduleMode === "full");
@@ -57,7 +59,6 @@ function onRowClick(item) {
         <button :class="{ active: isFull }" type="button" @click="appState.scheduleMode = 'full'">完整赛程</button>
       </div>
       <div class="schedule-status">
-        <span>数据更新 · 全部时间为北京时间 (UTC+8)</span>
         <strong>{{ updatedText }}</strong>
       </div>
     </section>

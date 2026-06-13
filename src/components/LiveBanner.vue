@@ -3,7 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import {
   appState, getFeaturedBannerMatches, getBannerMatchStatus, findTeamByName,
   formatTeamName, getPredictionResultText, getPredictionStats,
-  ensureMatchLineups, getLineupAdjustedPair, renderOddsText, getBannerClockDelay
+  ensureMatchLineups, getLineupAdjustedPair, renderOddsText, getBannerClockDelay,
+  formatVenueName
 } from "../lib/engine.js";
 import { openCompare } from "../lib/ui.js";
 
@@ -21,6 +22,7 @@ const cards = computed(() => {
     const teamA = findTeamByName(local.team1);
     const teamB = findTeamByName(local.team2);
     const stageText = [local.round, local.group].filter(Boolean).join(" · ");
+    const venueText = formatVenueName(local.ground);
     const status = getBannerMatchStatus(local);
     // 置顶卡片展示模型预测；已完赛场次额外展示命中结果。
     // 有保存的实际首发时按首发修正分计算。
@@ -36,7 +38,7 @@ const cards = computed(() => {
     }
     const predictParts = predictionParts(predictText);
     return {
-      local, teamA, teamB, stageText, status, predictText, predictParts,
+      local, teamA, teamB, stageText, venueText, status, predictText, predictParts,
       odds: renderOddsText(local),
       key: `${local.date}|${local.team1}|${local.team2}`
     };
@@ -79,7 +81,7 @@ function onCardClick(card) {
   if (!card.teamA || !card.teamB) return;
   openCompare(card.teamA, card.teamB, {
     ...card.local,
-    meta: [card.status.label, card.stageText].filter(Boolean).join(" · ")
+    meta: [card.status.label, card.stageText, card.venueText].filter(Boolean).join(" · ")
   });
 }
 </script>
@@ -111,6 +113,7 @@ function onCardClick(card) {
         <strong>{{ formatTeamName(card.local.team2) }}</strong>
       </span>
       <span class="live-meta">{{ [card.local.date, card.local.time, card.stageText || "世界杯"].filter(Boolean).join(" · ") }}</span>
+      <span class="live-venue">{{ card.venueText }}</span>
       <span v-if="card.predictText || card.odds" class="live-card-info">
         <span v-if="card.predictText" class="live-predict" :class="{ hit: card.predictParts.hit }">
           <strong v-if="card.predictParts.hit">{{ card.predictParts.hit }}</strong>{{ card.predictParts.rest }}
