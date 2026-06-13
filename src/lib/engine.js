@@ -493,7 +493,7 @@ export const appState = reactive({
   selectedId: null,
   query: "",
   sortMode: "rank",
-  view: "strength",
+  view: "events",
   scheduleMode: "recent",
   scheduleQuery: "",
   scheduleGroup: "all",
