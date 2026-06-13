@@ -1,21 +1,12 @@
 <script setup>
 import { computed } from "vue";
 import {
-  appState, getRecentMatchRows, getFullScheduleRows, matchMatchesScheduleFilters,
-  getWorldCupMatches, getScheduleSourceLabel, formatGeneratedAt, findTeamByName,
+  appState, getRecentMatchRows, getFullScheduleRows,
+  getScheduleSourceLabel, formatGeneratedAt, findTeamByName,
   formatTeamName, getPredictionBadge, getPredictionResultText, getMissingRatingLabel,
   getLineupAdjustedPair, renderOddsText
 } from "../lib/engine.js";
 import { openCompare } from "../lib/ui.js";
-
-const groups = computed(() => {
-  void appState.liveSchedule;
-  return getWorldCupMatches()
-    .map((match) => match.group)
-    .filter(Boolean)
-    .filter((group, index, list) => list.indexOf(group) === index)
-    .sort((a, b) => a.localeCompare(b));
-});
 
 const updatedText = computed(() => {
   const updatedAt = appState.liveSchedule?.fetchedAt ?? appState.publicData?.manifest?.generated_at;
@@ -28,14 +19,11 @@ const rows = computed(() => {
   void appState.liveSchedule;
   void appState.odds;
   void appState.teams;
-  void appState.scheduleQuery;
-  void appState.scheduleGroup;
   void appState.matchLineupVersion;
   const base = isFull.value ? getFullScheduleRows() : getRecentMatchRows();
-  const filtered = base.filter(matchMatchesScheduleFilters);
-  const visible = isFull.value ? filtered : filtered.slice(0, 80);
+  const visible = isFull.value ? base : base.slice(0, 80);
   return {
-    total: filtered.length,
+    total: base.length,
     items: visible.map((match, index) => {
       const teamA = findTeamByName(match.team1);
       const teamB = findTeamByName(match.team2);
@@ -63,29 +51,15 @@ function onRowClick(item) {
 
 <template>
   <section class="schedule-view" aria-label="赛程页">
-    <section class="schedule-hero">
-      <div>
-        <p class="eyebrow">Matches</p>
-        <h2>赛程与近期比赛</h2>
+    <section class="schedule-controls" aria-label="赛程类型">
+      <div class="segmented-control" role="tablist" aria-label="赛程类型">
+        <button :class="{ active: !isFull }" type="button" @click="appState.scheduleMode = 'recent'">近期比赛</button>
+        <button :class="{ active: isFull }" type="button" @click="appState.scheduleMode = 'full'">完整赛程</button>
       </div>
       <div class="schedule-status">
         <span>数据更新 · 全部时间为北京时间 (UTC+8)</span>
         <strong>{{ updatedText }}</strong>
       </div>
-    </section>
-
-    <section class="schedule-controls" aria-label="赛程筛选">
-      <div class="segmented-control" role="tablist" aria-label="赛程类型">
-        <button :class="{ active: !isFull }" type="button" @click="appState.scheduleMode = 'recent'">近期比赛</button>
-        <button :class="{ active: isFull }" type="button" @click="appState.scheduleMode = 'full'">完整赛程</button>
-      </div>
-      <label class="select-box">
-        <span>小组</span>
-        <select v-model="appState.scheduleGroup" :disabled="!isFull">
-          <option value="all">全部</option>
-          <option v-for="group in groups" :key="group" :value="group">{{ group.replace("Group ", "小组 ") }}</option>
-        </select>
-      </label>
     </section>
 
     <section class="schedule-panel">
