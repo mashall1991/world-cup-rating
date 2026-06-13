@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   appState, getSelectedTeam, getTier, formatScore, formatPercent, signed, clamp,
   scoreComponentConfig, tournamentStageConfig, getCoefficientTotal, getActiveCoefficientConfig,
@@ -89,11 +89,58 @@ function resetCoefficients() {
   saveCoefficientConfig(appState.coefficients);
   refreshTeamScores();
 }
+
+// 移动端底部浮层：把手支持拖动展开/收起，轻点则切换
+const panelRef = ref(null);
+let dragStartY = 0;
+let collapsedOffset = 0;
+let dragging = false;
+let moved = false;
+
+function onHandleDown(event) {
+  const panel = panelRef.value;
+  if (!panel) return;
+  dragging = true;
+  moved = false;
+  dragStartY = event.clientY;
+  collapsedOffset = Math.max(panel.offsetHeight - 112, 0);
+  panel.style.transition = "none";
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  window.addEventListener("pointermove", onHandleMove);
+  window.addEventListener("pointerup", onHandleUp);
+}
+
+function onHandleMove(event) {
+  const panel = panelRef.value;
+  if (!dragging || !panel) return;
+  const delta = event.clientY - dragStartY;
+  if (Math.abs(delta) > 4) moved = true;
+  const base = ui.sheetOpen ? 0 : collapsedOffset;
+  const next = Math.min(Math.max(base + delta, 0), collapsedOffset);
+  panel.style.transform = `translateY(${next}px)`;
+}
+
+function onHandleUp(event) {
+  const panel = panelRef.value;
+  dragging = false;
+  window.removeEventListener("pointermove", onHandleMove);
+  window.removeEventListener("pointerup", onHandleUp);
+  if (!panel) return;
+  panel.style.transition = "";
+  panel.style.transform = "";
+  if (!moved) {
+    ui.sheetOpen = !ui.sheetOpen;
+    return;
+  }
+  const delta = event.clientY - dragStartY;
+  if (delta < -40) ui.sheetOpen = true;
+  else if (delta > 40) ui.sheetOpen = false;
+}
 </script>
 
 <template>
-  <section v-if="team" class="detail-panel" :class="{ expanded: ui.sheetOpen }" aria-live="polite">
-    <button class="sheet-handle" type="button" aria-label="展开/收起评分详情" @click="ui.sheetOpen = !ui.sheetOpen">
+  <section v-if="team" ref="panelRef" class="detail-panel" :class="{ expanded: ui.sheetOpen }" aria-live="polite">
+    <button class="sheet-handle" type="button" aria-label="拖动或点击展开/收起评分详情" @pointerdown="onHandleDown">
       <span></span>
     </button>
 
