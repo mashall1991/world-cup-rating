@@ -354,6 +354,25 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   font-weight: 800;
 }
 
+.live-favorite-team {
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.live-confidence {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  padding: 1px 6px;
+  border: 1px solid rgba(74, 222, 128, 0.42);
+  border-radius: 999px;
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--accent);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .live-odds {
   color: var(--gold);
   font-variant-numeric: tabular-nums;

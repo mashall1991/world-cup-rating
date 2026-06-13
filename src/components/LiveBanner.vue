@@ -21,7 +21,7 @@ const cards = computed(() => {
   return getFeaturedBannerMatches().map((local) => {
     const teamA = findTeamByName(local.team1);
     const teamB = findTeamByName(local.team2);
-    const stageText = [local.round, local.group].filter(Boolean).join(" · ");
+    const stageText = [formatStageLabel(local.round), formatGroupLabel(local.group)].filter(Boolean).join(" · ");
     const venueText = formatVenueName(local.ground);
     const status = getBannerMatchStatus(local);
     // 置顶卡片展示模型预测；已完赛场次额外展示命中结果。
@@ -54,7 +54,35 @@ const stats = computed(() => {
 
 function predictionParts(text) {
   const match = /^(预测命中|平局风险命中)(.*)$/.exec(text ?? "");
-  return match ? { hit: match[1], rest: match[2] } : { hit: "", rest: text };
+  const hit = match ? match[1] : "";
+  const rest = match ? match[2] : (text ?? "");
+  const favorite = /^(看好\s+)(.+?)(\s*·\s*看好信心\s+)(\d+%)(.*)$/.exec(rest);
+  if (favorite) {
+    return {
+      hit,
+      prefix: favorite[1],
+      favorite: favorite[2],
+      confidencePrefix: favorite[3],
+      confidence: favorite[4],
+      suffix: favorite[5] ?? ""
+    };
+  }
+  return { hit, prefix: "", favorite: "", confidencePrefix: "", confidence: "", suffix: rest };
+}
+
+function formatStageLabel(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const matchday = /^Matchday\s+(\d+)$/i.exec(text);
+  if (matchday) return `第${matchday[1]}比赛日`;
+  return text.replace(/^Group Stage$/i, "小组赛");
+}
+
+function formatGroupLabel(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const group = /^(?:Group|GROUP_)\s*_?([A-L])$/i.exec(text);
+  return group ? `${group[1].toUpperCase()}组` : text;
 }
 
 function scheduleBannerClock() {
@@ -116,7 +144,7 @@ function onCardClick(card) {
       <span class="live-venue">{{ card.venueText }}</span>
       <span v-if="card.predictText || card.odds" class="live-card-info">
         <span v-if="card.predictText" class="live-predict" :class="{ hit: card.predictParts.hit }">
-          <strong v-if="card.predictParts.hit">{{ card.predictParts.hit }}</strong>{{ card.predictParts.rest }}
+          <strong v-if="card.predictParts.hit">{{ card.predictParts.hit }}</strong>{{ card.predictParts.prefix }}<strong v-if="card.predictParts.favorite" class="live-favorite-team">{{ card.predictParts.favorite }}</strong>{{ card.predictParts.confidencePrefix }}<span v-if="card.predictParts.confidence" class="live-confidence">{{ card.predictParts.confidence }}</span>{{ card.predictParts.suffix }}
         </span>
         <span v-if="card.odds" class="live-odds">{{ card.odds }}</span>
       </span>
