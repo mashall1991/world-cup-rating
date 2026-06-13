@@ -22,7 +22,7 @@ const cards = computed(() => {
     const teamA = findTeamByName(local.team1);
     const teamB = findTeamByName(local.team2);
     const stageText = [formatStageLabel(local.round), formatGroupLabel(local.group)].filter(Boolean).join(" · ");
-    const venueText = formatVenueName(local.ground);
+    const venueText = formatVenueText(local);
     const status = getBannerMatchStatus(local);
     // 置顶卡片展示模型预测；已完赛场次额外展示命中结果。
     // 有保存的实际首发时按首发修正分计算。
@@ -83,6 +83,16 @@ function formatGroupLabel(value) {
   if (!text) return "";
   const group = /^(?:Group|GROUP_)\s*_?([A-L])$/i.exec(text);
   return group ? `${group[1].toUpperCase()}组` : text;
+}
+
+function formatVenueText(match) {
+  const ground = String(match.ground ?? "").trim();
+  const city = String(match.city ?? "").trim();
+  const labels = [ground, city]
+    .filter(Boolean)
+    .map(formatVenueName)
+    .filter((label, index, list) => label && list.indexOf(label) === index);
+  return labels.join(" · ") || "地点未标注";
 }
 
 function scheduleBannerClock() {
