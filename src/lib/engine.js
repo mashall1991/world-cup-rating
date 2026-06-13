@@ -479,7 +479,9 @@ const LINEUP_API = {
 
 const ODDS_API = {
   endpoint: "/api/odds/worldcup",
-  refreshMs: 3 * 60 * 1000,
+  refreshMs: 10 * 60 * 1000,
+  midKickoffRefreshMs: 3 * 60 * 1000,
+  midKickoffWindowMs: 60 * 60 * 1000,
   nearKickoffRefreshMs: 60 * 1000,
   nearKickoffWindowMs: 30 * 60 * 1000,
   get available() {
@@ -820,18 +822,25 @@ function isFreshOddsCache(cached) {
 }
 
 function getActiveOddsRefreshMs() {
-  return hasNearKickoffMatch() ? ODDS_API.nearKickoffRefreshMs : ODDS_API.refreshMs;
+  const diff = getNearestKickoffDiffMs();
+  if (diff === null) return ODDS_API.refreshMs;
+  if (diff <= ODDS_API.nearKickoffWindowMs) return ODDS_API.nearKickoffRefreshMs;
+  if (diff <= ODDS_API.midKickoffWindowMs) return ODDS_API.midKickoffRefreshMs;
+  return ODDS_API.refreshMs;
 }
 
-function hasNearKickoffMatch() {
+function getNearestKickoffDiffMs() {
   const now = Date.now();
-  return getWorldCupMatches().some((match) => {
-    if (isMatchFinished(match) || ["IN_PLAY", "PAUSED", "POSTPONED"].includes(match.status)) return false;
+  let nearest = null;
+  getWorldCupMatches().forEach((match) => {
+    if (isMatchFinished(match) || ["IN_PLAY", "PAUSED", "POSTPONED"].includes(match.status)) return;
     const kickoff = getMatchKickoffMs(match);
-    if (!Number.isFinite(kickoff)) return false;
+    if (!Number.isFinite(kickoff)) return;
     const diff = kickoff - now;
-    return diff >= 0 && diff <= ODDS_API.nearKickoffWindowMs;
+    if (diff < 0) return;
+    if (nearest === null || diff < nearest) nearest = diff;
   });
+  return nearest;
 }
 
 function getBannerClockDelay(now = Date.now()) {
