@@ -404,6 +404,9 @@ const ODDS_API = {
 const CLOSE_MATCH_THRESHOLD = 1;
 const GROUP_STAGE_DRAW_CONFIDENCE_MAX = 0.3;
 const KNOCKOUT_DRAW_CONFIDENCE_MAX = 0.33;
+const WIN_CONFIDENCE_MIN = 0.5;
+const WIN_CONFIDENCE_MAX = 0.8;
+const WIN_CONFIDENCE_SCALE = 16;
 
 const publicData = loadPublicData();
 const clubPlayerStats = loadClubPlayerStats();
@@ -820,7 +823,11 @@ function getPredictionLeader(diff, teamA, teamB) {
 
 function getPredictionConfidence(diff) {
   const edge = Math.abs(Number(diff) || 0);
-  return Math.max(0.5, Math.min(0.82, 0.5 + edge * 0.045));
+  const scaledEdge = 1 - Math.exp(-edge / WIN_CONFIDENCE_SCALE);
+  return Math.max(
+    WIN_CONFIDENCE_MIN,
+    Math.min(WIN_CONFIDENCE_MAX, WIN_CONFIDENCE_MIN + scaledEdge * (WIN_CONFIDENCE_MAX - WIN_CONFIDENCE_MIN))
+  );
 }
 
 function getDrawConfidence(diff, match = null) {
