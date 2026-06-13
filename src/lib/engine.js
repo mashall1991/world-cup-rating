@@ -380,10 +380,16 @@ const ELITE_CLUB_PATTERNS = [
 // 实时数据走同源 /api 代理（server.js 转发到 API-Football 并在服务端附加 token）。
 // 这样浏览器不受 CORS 限制，token 也不暴露在前端源码里。
 // file:// 直接打开页面时无代理可用，自动降级为本地数据。
+const SCHEDULE_CACHE_STORAGE_KEY = "wcScheduleCache";
+const SCHEDULE_API_COOLDOWN_MS = 10 * 60 * 1000;
+const BANNER_UPCOMING_WINDOW_MS = 2 * 60 * 60 * 1000;
+const BANNER_ESTIMATED_LIVE_MS = 2 * 60 * 60 * 1000;
+const BANNER_ACTIVE_REFRESH_MS = 60 * 1000;
+
 const LINEUP_API = {
   baseUrl: "/api/football",
   timeoutMs: 8000,
-  scheduleCacheMaxAgeMs: 2 * 60 * 1000,
+  scheduleCacheMaxAgeMs: SCHEDULE_API_COOLDOWN_MS,
   cachePrefix: "lineupCache:",
   get available() {
     return window.location.protocol === "http:" || window.location.protocol === "https:";
@@ -599,6 +605,13 @@ function formatCoefficient(value) {
 async function loadLiveSchedule() {
   if (!LINEUP_API.available || appState.liveScheduleLoading) return;
   appState.liveScheduleAttempted = true;
+  const cached = readScheduleCache();
+  if (isFreshScheduleCache(cached)) {
+    appState.liveSchedule = { ...cached, source: "cache" };
+    scheduleNextLiveScheduleLoad(getScheduleCacheRemainingMs(cached));
+    return;
+  }
+
   appState.liveScheduleLoading = true;
   try {
     const data = await lineupApiGet(`/worldcup/fixtures?ts=${Date.now()}`);
@@ -610,7 +623,7 @@ async function loadLiveSchedule() {
         matches
       };
       try {
-        localStorage.setItem("wcScheduleCache", JSON.stringify(appState.liveSchedule));
+        writeScheduleCache(appState.liveSchedule);
       } catch {
         // 忽略缓存写入失败
       }
@@ -618,7 +631,6 @@ async function loadLiveSchedule() {
   } catch {
     // 实时获取失败：尝试缓存，再不行就继续用本地 JSON
     try {
-      const cached = JSON.parse(localStorage.getItem("wcScheduleCache"));
       if (isFreshScheduleCache(cached)) {
         appState.liveSchedule = { ...cached, source: "cache" };
       } else if (!isFreshScheduleCache(appState.liveSchedule)) {
@@ -632,13 +644,9 @@ async function loadLiveSchedule() {
   } finally {
     appState.liveScheduleLoading = false;
 
-    // 自适应轮询：根据当前比赛状态动态决定下次刷新间隔，
-    // 保证“即将开赛 → 进行中”的状态翻转及比分变化都能被及时拉到。
-    clearTimeout(appState.livePollTimer);
+    // 赛程接口统一 10 分钟冷却,并持久化到浏览器缓存,避免切换页面或重进页面时重复请求。
     const nextPollDelay = getLivePollDelay();
-    if (nextPollDelay) {
-      appState.livePollTimer = setTimeout(loadLiveSchedule, nextPollDelay);
-    }
+    if (nextPollDelay) scheduleNextLiveScheduleLoad(nextPollDelay);
   }
 }
 
@@ -745,6 +753,24 @@ function hasNearKickoffMatch() {
   });
 }
 
+function getBannerClockDelay(now = Date.now()) {
+  let delay = SCHEDULE_API_COOLDOWN_MS;
+  getWorldCupMatches().forEach((match) => {
+    if (isMatchFinished(match) || ["IN_PLAY", "PAUSED", "POSTPONED"].includes(match.status)) return;
+    const kickoff = getMatchKickoffMs(match);
+    if (!Number.isFinite(kickoff)) return;
+    const diff = kickoff - now;
+    if (diff > BANNER_UPCOMING_WINDOW_MS) {
+      delay = Math.min(delay, diff - BANNER_UPCOMING_WINDOW_MS);
+    } else if (diff > 0) {
+      delay = Math.min(delay, diff, BANNER_ACTIVE_REFRESH_MS);
+    } else if (diff >= -BANNER_ESTIMATED_LIVE_MS) {
+      delay = Math.min(delay, BANNER_ACTIVE_REFRESH_MS);
+    }
+  });
+  return Math.max(1000, Math.min(delay, SCHEDULE_API_COOLDOWN_MS));
+}
+
 function getMatchKickoffMs(match) {
   const dateText = match?.date;
   const timeText = String(match?.time ?? "").trim();
@@ -767,27 +793,45 @@ function getMatchKickoffMs(match) {
   return NaN;
 }
 
-// 轮询节奏：
-// - 有比赛进行中/中场 → 30s，尽量贴近实时比分
-// - 今日有即将开赛或刚结束的比赛 → 60s，及时翻转状态
-// - 其余情况 → 10 分钟心跳，等待新一天的比赛进入临场窗口
+function readScheduleCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SCHEDULE_CACHE_STORAGE_KEY));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeScheduleCache(schedule) {
+  if (!schedule?.matches?.length) return;
+  try {
+    localStorage.setItem(SCHEDULE_CACHE_STORAGE_KEY, JSON.stringify(schedule));
+  } catch {
+    // localStorage 不可用时只保留当前会话数据
+  }
+}
+
+function getScheduleCacheRemainingMs(cached) {
+  const fetchedAt = new Date(cached?.fetchedAt ?? 0).getTime();
+  if (!Number.isFinite(fetchedAt)) return 0;
+  return LINEUP_API.scheduleCacheMaxAgeMs - (Date.now() - fetchedAt);
+}
+
+function scheduleNextLiveScheduleLoad(delayMs) {
+  clearTimeout(appState.livePollTimer);
+  const delay = Math.max(30000, Number(delayMs) || LINEUP_API.scheduleCacheMaxAgeMs);
+  appState.livePollTimer = setTimeout(loadLiveSchedule, delay);
+}
+
+// 赛程接口冷却：近期比赛与完整赛程共用同一份实时赛程接口，统一 10 分钟心跳。
 function getLivePollDelay() {
   if (!LINEUP_API.available) return 0;
-  const today = beijingParts(new Date().toISOString())?.date;
-  const matches = (appState.liveSchedule?.matches ?? []).map(liveMatchToLocal);
-  const hasLive = matches.some((match) => ["IN_PLAY", "PAUSED"].includes(match.status));
-  if (hasLive) return 30000;
-  const activeToday = matches.some(
-    (match) => match.date === today && ["SCHEDULED", "TIMED", "FINISHED"].includes(match.status)
-  );
-  if (activeToday) return 60000;
-  return 600000;
+  const remaining = getScheduleCacheRemainingMs(appState.liveSchedule);
+  return remaining > 0 ? remaining : LINEUP_API.scheduleCacheMaxAgeMs;
 }
 
 function isFreshScheduleCache(cached) {
-  if (!cached?.matches?.length || !cached.fetchedAt) return false;
-  const fetchedAt = new Date(cached.fetchedAt).getTime();
-  return Number.isFinite(fetchedAt) && Date.now() - fetchedAt <= LINEUP_API.scheduleCacheMaxAgeMs;
+  return Boolean(cached?.matches?.length) && getScheduleCacheRemainingMs(cached) > 0;
 }
 
 function getPrediction(teamA, teamB, match = null) {
@@ -1209,7 +1253,13 @@ function getBannerMatchStatus(match) {
   if (match.status === "PAUSED") return { label: "中场休息", className: "is-live" };
   if (match.status === "IN_PLAY") return { label: "比赛进行中", className: "is-live" };
   if (match.status === "FINISHED") return { label: "赛果", className: "is-finished" };
-  return { label: "即将开赛", className: "is-upcoming" };
+  const kickoff = getMatchKickoffMs(match);
+  if (!Number.isFinite(kickoff)) return { label: "预期赛事", className: "is-expected" };
+  const diff = kickoff - Date.now();
+  if (diff > BANNER_UPCOMING_WINDOW_MS) return { label: "预期赛事", className: "is-expected" };
+  if (diff > 0) return { label: "即将开赛", className: "is-upcoming" };
+  if (diff >= -BANNER_ESTIMATED_LIVE_MS) return { label: "预计进行中", className: "is-estimated-live" };
+  return { label: "等待赛果", className: "is-awaiting-result" };
 }
 
 function liveMatchToLocal(match) {
@@ -2975,6 +3025,7 @@ export {
   getStageLoadConfig, saveStageLoadMode, getEffectiveCoefficients, formatCoefficient,
   loadLiveSchedule, loadOdds, getPrediction, getPredictionText, getPredictionBadge,
   getPredictionResultText, getMissingRatingLabel, renderOddsText, getFeaturedBannerMatches,
+  getBannerClockDelay,
   getBannerMatchStatus, isMatchFinished, normalizeTeams, refreshTeamScores, rankTeams,
   getVisibleTeams, getSelectedTeam, findTeamByName, formatTeamName, getRecentMatchRows,
   getFullScheduleRows, matchMatchesScheduleFilters, getWorldCupMatches, getScheduleSourceLabel,

@@ -1,14 +1,18 @@
 <script setup>
-import { computed, watchEffect } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import {
   appState, getFeaturedBannerMatches, getBannerMatchStatus, findTeamByName,
   formatTeamName, getPredictionResultText, getPredictionStats,
-  ensureMatchLineups, getLineupAdjustedPair, renderOddsText
+  ensureMatchLineups, getLineupAdjustedPair, renderOddsText, getBannerClockDelay
 } from "../lib/engine.js";
 import { openCompare } from "../lib/ui.js";
 
+const bannerClock = ref(Date.now());
+let bannerClockTimer = null;
+
 const cards = computed(() => {
   // 依赖 liveSchedule / odds / teams / 已保存首发 的变化
+  void bannerClock.value;
   void appState.liveSchedule;
   void appState.odds;
   void appState.teams;
@@ -50,6 +54,17 @@ function predictionParts(text) {
   const match = /^(预测命中|平局风险命中)(.*)$/.exec(text ?? "");
   return match ? { hit: match[1], rest: match[2] } : { hit: "", rest: text };
 }
+
+function scheduleBannerClock() {
+  clearTimeout(bannerClockTimer);
+  bannerClockTimer = setTimeout(() => {
+    bannerClock.value = Date.now();
+    scheduleBannerClock();
+  }, getBannerClockDelay(bannerClock.value));
+}
+
+onMounted(scheduleBannerClock);
+onBeforeUnmount(() => clearTimeout(bannerClockTimer));
 
 // 对横幅中的比赛尝试获取并保存实际首发(engine 内部自带冻结与节流)
 watchEffect(() => {

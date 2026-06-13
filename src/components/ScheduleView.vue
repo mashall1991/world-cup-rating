@@ -42,11 +42,13 @@ const rows = computed(() => {
       // 有保存的实际首发时,预测按首发修正分计算(只读取,不发请求)
       const pair = getLineupAdjustedPair(match, teamA, teamB);
       const suffix = pair.adjusted ? " · 按实际首发" : "";
+      const badge = getPredictionBadge(match, pair.teamA, pair.teamB);
       return {
         match, teamA, teamB,
         key: `${match.date}|${match.team1}|${match.team2}|${index}`,
-        badge: getPredictionBadge(match, pair.teamA, pair.teamB),
+        badge,
         prediction: teamA && teamB ? getPredictionResultText(match, pair.teamA, pair.teamB) + suffix : "",
+        missed: badge === "预测未中",
         missing: getMissingRatingLabel(match, teamA, teamB),
         odds: renderOddsText(match)
       };
@@ -99,7 +101,7 @@ function onRowClick(item) {
           v-for="item in rows.items"
           :key="item.key"
           class="match-row"
-          :class="{ clickable: item.teamA && item.teamB }"
+          :class="{ clickable: item.teamA && item.teamB, missed: item.missed }"
           :title="item.missing || (item.teamA && item.teamB ? '点击查看两队实力对比' : undefined)"
           @click="onRowClick(item)"
         >
