@@ -25895,7 +25895,7 @@ window.WORLD_CUP_SQUAD_MODEL = {
       "id": "sco",
       "name": "苏格兰",
       "nameEn": "Scotland",
-      "flag": "🏴",
+      "flag": "\uD83C\uDFF4\uDB40\uDC67\uDB40\uDC62\uDB40\uDC73\uDB40\uDC63\uDB40\uDC74\uDB40\uDC7F",
       "confederation": "UEFA",
       "group": "Group C",
       "badge": "SCO",

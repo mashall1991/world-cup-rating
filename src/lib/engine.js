@@ -285,7 +285,7 @@ const tournamentTeamSeeds = [
   ["bra", "巴西", "Brazil", "🇧🇷", "CONMEBOL", "Group C", "#1f7a4d"],
   ["mar", "摩洛哥", "Morocco", "🇲🇦", "CAF", "Group C", "#b64a3a"],
   ["hai", "海地", "Haiti", "🇭🇹", "CONCACAF", "Group C", "#315f9f"],
-  ["sco", "苏格兰", "Scotland", "🏴", "UEFA", "Group C", "#315f9f"],
+  ["sco", "苏格兰", "Scotland", "\uD83C\uDFF4\uDB40\uDC67\uDB40\uDC62\uDB40\uDC73\uDB40\uDC63\uDB40\uDC74\uDB40\uDC7F", "UEFA", "Group C", "#315f9f"],
   ["usa", "美国", "USA", "🇺🇸", "CONCACAF", "Group D", "#315f9f"],
   ["par", "巴拉圭", "Paraguay", "🇵🇾", "CONMEBOL", "Group D", "#7b2f35"],
   ["aus", "澳大利亚", "Australia", "🇦🇺", "AFC", "Group D", "#bf7b1f"],
