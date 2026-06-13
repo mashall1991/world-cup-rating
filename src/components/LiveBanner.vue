@@ -47,7 +47,7 @@ const stats = computed(() => {
 });
 
 function predictionParts(text) {
-  const match = /^(预测命中|平局命中)(.*)$/.exec(text ?? "");
+  const match = /^(预测命中|平局风险命中)(.*)$/.exec(text ?? "");
   return match ? { hit: match[1], rest: match[2] } : { hit: "", rest: text };
 }
 
@@ -75,7 +75,7 @@ function onCardClick(card) {
       <span class="live-status"><span class="live-dot" aria-hidden="true"></span>模型战绩</span>
       <span class="stat-value">{{ Math.round(stats.accuracy * 100) }}<small>%</small></span>
       <span class="live-meta">已完赛 {{ stats.total }} 场 · 命中 {{ stats.hits }} 场</span>
-      <span class="live-meta">实际平局 {{ stats.draws }} 场 · 平局命中 {{ stats.drawHits }} 场</span>
+      <span class="live-meta">实际平局 {{ stats.draws }} 场 · 风险命中 {{ stats.drawHits }} 场</span>
     </div>
     <button
       v-for="card in cards"

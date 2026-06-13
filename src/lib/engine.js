@@ -400,8 +400,10 @@ const ODDS_API = {
   }
 };
 
-// 平局判定阈值：145 场有评分正式比赛回测,阈值 1.0 总准确率 51%(1.5→47.6%,2.0→44.8%)
-const DRAW_PREDICTION_THRESHOLD = 1;
+// 势均力敌阈值：评分差在 1 分内时提示平局风险,但不直接把赛果预测为平局。
+const CLOSE_MATCH_THRESHOLD = 1;
+const GROUP_STAGE_DRAW_CONFIDENCE_MAX = 0.3;
+const KNOCKOUT_DRAW_CONFIDENCE_MAX = 0.33;
 
 const publicData = loadPublicData();
 const clubPlayerStats = loadClubPlayerStats();
@@ -785,57 +787,93 @@ function isFreshScheduleCache(cached) {
   return Number.isFinite(fetchedAt) && Date.now() - fetchedAt <= LINEUP_API.scheduleCacheMaxAgeMs;
 }
 
-function getPrediction(teamA, teamB) {
+function getPrediction(teamA, teamB, match = null) {
   if (!teamA || !teamB) return null;
   const scoreA = Number(teamA.finalScore);
   const scoreB = Number(teamB.finalScore);
   if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB)) return null;
   const diff = scoreA - scoreB;
-  const makePrediction = (outcome, label) => {
-    const confidence = getPredictionConfidence(diff, outcome);
-    return { outcome, label, confidence, probability: confidence };
+  const leading = getPredictionLeader(diff, teamA, teamB);
+  const confidence = getPredictionConfidence(diff);
+  const drawConfidence = getDrawConfidence(diff, match);
+  const closeMatch = Math.abs(diff) <= CLOSE_MATCH_THRESHOLD;
+  return {
+    outcome: leading.outcome,
+    label: leading.label,
+    confidence,
+    probability: confidence,
+    drawConfidence,
+    closeMatch
   };
-  if (Math.abs(diff) <= DRAW_PREDICTION_THRESHOLD) {
-    return makePrediction("draw", "平局");
-  }
-  return diff > 0 ? makePrediction("home", teamA.name) : makePrediction("away", teamB.name);
 }
 
-function getPredictionConfidence(diff, outcome) {
+function getPredictionLeader(diff, teamA, teamB) {
+  if (diff > 0) return { outcome: "home", label: teamA.name };
+  if (diff < 0) return { outcome: "away", label: teamB.name };
+  const rankA = Number(teamA.rank);
+  const rankB = Number(teamB.rank);
+  if (Number.isFinite(rankA) && Number.isFinite(rankB) && rankA !== rankB) {
+    return rankA < rankB ? { outcome: "home", label: teamA.name } : { outcome: "away", label: teamB.name };
+  }
+  return { outcome: "home", label: teamA.name };
+}
+
+function getPredictionConfidence(diff) {
   const edge = Math.abs(Number(diff) || 0);
-  if (outcome === "draw") {
-    const closeness = Math.max(0, DRAW_PREDICTION_THRESHOLD - edge) / Math.max(1, DRAW_PREDICTION_THRESHOLD);
-    return Math.max(0.52, Math.min(0.64, 0.54 + closeness * 0.1));
-  }
-  return Math.max(0.54, Math.min(0.82, 0.54 + edge * 0.045));
+  return Math.max(0.5, Math.min(0.82, 0.5 + edge * 0.045));
 }
 
-function getPredictionText(teamA, teamB) {
-  const prediction = getPrediction(teamA, teamB);
+function getDrawConfidence(diff, match = null) {
+  const edge = Math.abs(Number(diff) || 0);
+  const closeness = Math.max(0, CLOSE_MATCH_THRESHOLD - edge) / Math.max(1, CLOSE_MATCH_THRESHOLD);
+  const maxConfidence = isKnockoutMatch(match)
+    ? KNOCKOUT_DRAW_CONFIDENCE_MAX
+    : GROUP_STAGE_DRAW_CONFIDENCE_MAX;
+  return Math.max(0.18, Math.min(maxConfidence, maxConfidence - 0.08 + closeness * 0.08));
+}
+
+function isKnockoutMatch(match) {
+  if (!match) return false;
+  const group = String(match.group ?? "").trim();
+  if (group) return false;
+  const roundText = [match.round, match.meta, match.badge].filter(Boolean).join(" ");
+  return /(round|16|32|quarter|semi|final|third|淘汰|决赛|半决赛|四分之一|八分之一|32强|16强|8强|4强)/i.test(roundText);
+}
+
+function renderPredictionConfidence(prediction) {
+  const drawText = prediction.closeMatch
+    ? ` · 势均力敌 · 平局信心 ${formatPercent(prediction.drawConfidence)}`
+    : "";
+  return `看好 ${prediction.label} · 看好信心 ${formatPercent(prediction.confidence)}${drawText}`;
+}
+
+function getPredictionText(teamA, teamB, match = null) {
+  const prediction = getPrediction(teamA, teamB, match);
   if (!prediction) return "暂无模型评分";
-  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · 看好 ${prediction.label} · 预测信心 ${formatPercent(prediction.confidence)}`;
+  return `模型预测 ${formatScore(teamA.finalScore)} : ${formatScore(teamB.finalScore)} · ${renderPredictionConfidence(prediction)}`;
 }
 
 function getPredictionBadge(match, teamA, teamB) {
   if (!match.resultFinal) return "";
-  const prediction = getPrediction(teamA, teamB);
+  const prediction = getPrediction(teamA, teamB, match);
   const actual = getScoreOutcome(match.score);
   if (!prediction || !actual) return "";
-  if (prediction.outcome === actual) return prediction.outcome === "draw" ? "平局命中" : "预测命中";
+  if (prediction.outcome === actual) return "预测命中";
+  if (actual === "draw" && prediction.closeMatch) return "平局风险命中";
   return "预测未中";
 }
 
 function getPredictionResultText(match, teamA, teamB) {
-  const prediction = getPrediction(teamA, teamB);
+  const prediction = getPrediction(teamA, teamB, match);
   if (!prediction) return "暂无模型评分";
   const actual = getScoreOutcome(match.score ?? match.liveScore);
-  const confidence = formatPercent(prediction.confidence);
+  const confidenceText = renderPredictionConfidence(prediction);
   if (!match.resultFinal || !actual) {
-    return `看好 ${prediction.label} · 预测信心 ${confidence}`;
+    return confidenceText;
   }
   const hit = prediction.outcome === actual;
-  const outcomeLabel = hit ? "预测命中" : "预测未中";
-  return `${outcomeLabel} · 看好 ${prediction.label} · 预测信心 ${confidence}`;
+  const outcomeLabel = hit ? "预测命中" : actual === "draw" && prediction.closeMatch ? "平局风险命中" : "预测未中";
+  return `${outcomeLabel} · ${confidenceText}`;
 }
 
 function getMissingRatingLabel(match, teamA, teamB) {
@@ -2784,23 +2822,23 @@ function getPredictionStats() {
   let total = 0;
   let hits = 0;
   let draws = 0;
-  let drawHits = 0;
+  let drawRiskHits = 0;
   merged.forEach((match) => {
     const teamA = findTeamByName(match.team1);
     const teamB = findTeamByName(match.team2);
     const actual = getScoreOutcome(match.liveScore);
     if (!teamA || !teamB || !actual) return;
     const pair = getLineupAdjustedPair(match, teamA, teamB);
-    const prediction = getPrediction(pair.teamA, pair.teamB);
+    const prediction = getPrediction(pair.teamA, pair.teamB, match);
     if (!prediction) return;
     total += 1;
     if (actual === "draw") draws += 1;
+    if (actual === "draw" && prediction.closeMatch) drawRiskHits += 1;
     if (prediction.outcome === actual) {
       hits += 1;
-      if (actual === "draw") drawHits += 1;
     }
   });
-  return { total, hits, draws, drawHits, accuracy: total ? hits / total : 0 };
+  return { total, hits, draws, drawHits: drawRiskHits, accuracy: total ? hits / total : 0 };
 }
 
 // ==== 每场比赛实际首发的持久化与冻结 ====
