@@ -2,7 +2,8 @@
 import { computed, ref, watch } from "vue";
 import {
   LINEUP_API, dimensionConfig, ensureTeamLineup, readLineupCache,
-  recomputeWithLineup, ensureMatchLineups, getTier, formatScore, clamp
+  recomputeWithLineup, ensureMatchLineups, getTier, formatScore, clamp,
+  getPlayerClubProfile
 } from "../lib/engine.js";
 import { ui, closeCompare } from "../lib/ui.js";
 
@@ -36,6 +37,10 @@ const compareRows = computed(() => {
 
 function makeColumn(team) {
   return { team, lineup: team.startingXI ?? [], meta: "本地预测" };
+}
+
+function clubProfile(item, team) {
+  return getPlayerClubProfile(item, team);
 }
 
 async function resolveColumn(col, team, token) {
@@ -166,10 +171,19 @@ watch(
                     v-for="(item, index) in col.lineup"
                     :key="index"
                     class="compare-lineup-item"
-                    :class="{ placeholder: item.placeholder }"
+                    :class="{ placeholder: item.placeholder, highlighted: clubProfile(item, col.team).highlighted }"
                   >
                     <span class="cl-pos">{{ item.position }}</span>
-                    <span class="cl-name">{{ item.name }}</span>
+                    <span class="cl-main">
+                      <span class="cl-name">{{ item.name }}</span>
+                      <span class="cl-club-line">
+                        {{ [clubProfile(item, col.team).club, clubProfile(item, col.team).league].filter(Boolean).join(" · ") }}<template v-if="clubProfile(item, col.team).clubEn"> · {{ clubProfile(item, col.team).clubEn }}</template>
+                      </span>
+                      <span class="club-tags compare-tags">
+                        <span class="club-chip" :class="{ highlight: clubProfile(item, col.team).elite }">{{ clubProfile(item, col.team).level }}</span>
+                        <span class="club-chip" :class="{ highlight: clubProfile(item, col.team).starter }">{{ clubProfile(item, col.team).role }}</span>
+                      </span>
+                    </span>
                   </li>
                 </ol>
               </div>

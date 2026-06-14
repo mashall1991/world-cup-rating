@@ -1,5 +1,5 @@
 <script setup>
-import { shortTier, formatScore } from "../lib/engine.js";
+import { shortTier, formatScore, getPlayerClubProfile } from "../lib/engine.js";
 
 defineProps({ players: { type: Array, default: () => [] } });
 
@@ -7,6 +7,10 @@ function statusClass(item) {
   if (item.availability === "观察") return "status-watch";
   if (item.availability === "缺席") return "status-out";
   return "";
+}
+
+function clubProfile(item) {
+  return getPlayerClubProfile(item);
 }
 </script>
 
@@ -27,7 +31,16 @@ function statusClass(item) {
           <td>{{ item.position }}</td>
           <td>{{ shortTier(item) }}</td>
           <td>
-            <span class="dual-name"><strong>{{ item.club }}</strong><small>{{ item.clubEn }}</small></span>
+            <div class="player-club-cell" :class="{ highlighted: clubProfile(item).highlighted }">
+              <span class="dual-name">
+                <strong>{{ [clubProfile(item).club, clubProfile(item).league].filter(Boolean).join(" · ") }}</strong>
+                <small>{{ clubProfile(item).clubEn }}</small>
+              </span>
+              <span class="club-tags">
+                <span class="club-chip" :class="{ highlight: clubProfile(item).elite }">{{ clubProfile(item).level }}</span>
+                <span class="club-chip" :class="{ highlight: clubProfile(item).starter }">{{ clubProfile(item).role }}</span>
+              </span>
+            </div>
           </td>
           <td><span class="status-dot" :class="statusClass(item)">{{ item.availability }}</span></td>
           <td class="num">{{ formatScore(item.environmentScore) }}</td>
@@ -46,7 +59,14 @@ function statusClass(item) {
           <span class="player-card-tier">{{ shortTier(item) }}</span>
           <span class="status-dot" :class="statusClass(item)">{{ item.availability }}</span>
         </div>
-        <div class="player-card-club">{{ item.club }} · {{ item.clubEn }}</div>
+        <div class="player-card-club" :class="{ highlighted: clubProfile(item).highlighted }">
+          <span>{{ [clubProfile(item).club, clubProfile(item).league].filter(Boolean).join(" · ") }}</span>
+          <small v-if="clubProfile(item).clubEn">{{ clubProfile(item).clubEn }}</small>
+          <span class="club-tags">
+            <span class="club-chip" :class="{ highlight: clubProfile(item).elite }">{{ clubProfile(item).level }}</span>
+            <span class="club-chip" :class="{ highlight: clubProfile(item).starter }">{{ clubProfile(item).role }}</span>
+          </span>
+        </div>
       </article>
     </div>
   </div>

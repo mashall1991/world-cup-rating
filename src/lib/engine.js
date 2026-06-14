@@ -459,6 +459,145 @@ const ELITE_CLUB_PATTERNS = [
   "borussia dortmund"
 ];
 
+const CLUB_ZH_LABELS = Object.freeze({
+  "manchester city fc": "曼城",
+  "manchester city": "曼城",
+  "fc bayern munchen": "拜仁慕尼黑",
+  "bayern munich": "拜仁慕尼黑",
+  "paris saint germain": "巴黎圣日耳曼",
+  "arsenal fc": "阿森纳",
+  "arsenal": "阿森纳",
+  "fc barcelona": "巴塞罗那",
+  "barcelona": "巴塞罗那",
+  "atletico de madrid": "马德里竞技",
+  "manchester united fc": "曼联",
+  "manchester united": "曼联",
+  "crystal palace fc": "水晶宫",
+  "al hilal sc": "利雅得新月",
+  "borussia dortmund": "多特蒙德",
+  "liverpool fc": "利物浦",
+  "liverpool": "利物浦",
+  "galatasaray sk": "加拉塔萨雷",
+  "real madrid c f": "皇家马德里",
+  "real madrid": "皇家马德里",
+  "psv eindhoven": "埃因霍温",
+  "ac milan": "AC米兰",
+  "fenerbahce sk": "费内巴切",
+  "sk slavia praha": "布拉格斯拉维亚",
+  "sunderland afc": "桑德兰",
+  "al ahli fc": "吉达国民",
+  "aston villa fc": "阿斯顿维拉",
+  "cr flamengo": "弗拉门戈",
+  "al ahly fc": "开罗国民",
+  "al nassr fc": "利雅得胜利",
+  "lille osc": "里尔",
+  "eintracht frankfurt": "法兰克福",
+  "ogc nice": "尼斯",
+  "tottenham hotspur fc": "托特纳姆热刺",
+  "tottenham hotspur": "托特纳姆热刺",
+  "sl benfica": "本菲卡",
+  "chelsea fc": "切尔西",
+  "chelsea": "切尔西",
+  "tsg hoffenheim": "霍芬海姆",
+  "brighton and hove albion fc": "布莱顿",
+  "atalanta bergamo": "亚特兰大",
+  "vfb stuttgart": "斯图加特",
+  "newcastle united fc": "纽卡斯尔联",
+  "newcastle united": "纽卡斯尔联",
+  "villarreal cf": "比利亚雷亚尔",
+  "celtic fc": "凯尔特人",
+  "mamelodi sundowns fc": "马梅洛迪日落",
+  "orlando pirates fc": "奥兰多海盗",
+  "al duhail sc": "杜海勒",
+  "bayer 04 leverkusen": "勒沃库森",
+  "rc strasbourg": "斯特拉斯堡",
+  "se palmeiras": "帕尔梅拉斯",
+  "fc internazionale milano": "国际米兰",
+  "inter": "国际米兰",
+  "sporting cp": "葡萄牙体育",
+  "olympique marseille": "马赛",
+  "bsc young boys": "伯尔尼年轻人",
+  "real betis": "皇家贝蒂斯",
+  "rb leipzig": "莱比锡",
+  "1 fsv mainz 05": "美因茨",
+  "fulham fc": "富勒姆",
+  "juventus fc": "尤文图斯",
+  "wolverhampton wanderers fc": "狼队",
+  "as monaco": "摩纳哥",
+  "feyenoord rotterdam": "费耶诺德",
+  "vfl wolfsburg": "沃尔夫斯堡",
+  "olympique lyonnais": "里昂",
+  "ca river plate": "河床",
+  "club brugge": "布鲁日",
+  "rangers fc": "流浪者",
+  "borussia monchengladbach": "门兴格拉德巴赫",
+  "afc bournemouth": "伯恩茅斯",
+  "bologna fc": "博洛尼亚",
+  "real sociedad": "皇家社会",
+  "burnley fc": "伯恩利",
+  "nottingham forest fc": "诺丁汉森林",
+  "as roma": "罗马",
+  "cd guadalajara": "瓜达拉哈拉",
+  "al sadd sc": "萨德"
+});
+
+const LEAGUE_CODE_LABELS = Object.freeze({
+  ENG: "英超",
+  ESP: "西甲",
+  GER: "德甲",
+  ITA: "意甲",
+  FRA: "法甲",
+  NED: "荷甲",
+  POR: "葡超",
+  TUR: "土超",
+  SCO: "苏超",
+  BEL: "比甲",
+  SUI: "瑞士超",
+  AUT: "奥甲",
+  DEN: "丹超",
+  NOR: "挪超",
+  SWE: "瑞典超",
+  RUS: "俄超",
+  GRE: "希超",
+  CZE: "捷甲",
+  POL: "波甲",
+  CRO: "克甲",
+  SRB: "塞超",
+  ROU: "罗甲",
+  BUL: "保甲",
+  SVK: "斯伐超",
+  SVN: "斯洛文尼亚甲",
+  KSA: "沙特联",
+  QAT: "卡塔尔联",
+  UAE: "阿联酋联",
+  IRN: "伊朗联",
+  IRQ: "伊拉克联",
+  JOR: "约旦联",
+  KOR: "K联赛",
+  JPN: "J联赛",
+  AUS: "澳超",
+  CHN: "中超",
+  USA: "美职联",
+  MEX: "墨超",
+  BRA: "巴甲",
+  ARG: "阿甲",
+  ECU: "厄瓜多尔甲",
+  COL: "哥伦比亚甲",
+  PAR: "巴拉圭甲",
+  URU: "乌拉圭甲",
+  CHI: "智利甲",
+  RSA: "南非超",
+  EGY: "埃及超",
+  TUN: "突尼斯甲",
+  ALG: "阿尔及利亚甲",
+  MAR: "摩洛哥甲",
+  CYP: "塞浦路斯甲",
+  ISR: "以超",
+  HUN: "匈甲",
+  CAN: "加超",
+  NZL: "新西兰联"
+});
+
 // 跨联赛强度校正（与 scripts/backtest-ucl.mjs 同源）：
 // API-Football 的俱乐部赛季评分是“联赛内相对值”——在弱联赛刷出的 7.3 ≠ 五大联赛的 7.3。
 // 不校正会让“小池塘大鱼”虚高（欧冠回测里博多/格利姆特、贝尔格莱德红星、土超双雄都异常靠前）。
@@ -2821,8 +2960,95 @@ function calculateClubDataSquadAdjustment(starters, rotation) {
 }
 
 function isEliteClubPlayer(player) {
-  const club = normalizeAscii(player.clubEn ?? player.club ?? "");
+  const club = normalizeAscii(
+    [player.clubEn, player.clubRaw, player.clubNameEn, player.clubName, player.club]
+      .find((value) => String(value ?? "").trim()) ?? ""
+  );
   return ELITE_CLUB_PATTERNS.some((pattern) => club.includes(pattern));
+}
+
+function findRosterPlayer(team, player) {
+  if (!team?.players?.length || !player) return null;
+  const keys = [player.nameEn, player.name]
+    .map(normalizeTeamKey)
+    .filter(Boolean);
+  return team.players.find((item) => {
+    const rosterKeys = [item.nameEn, item.name].map(normalizeTeamKey);
+    return keys.some((key) => rosterKeys.includes(key));
+  }) ?? null;
+}
+
+function getClubLevelLabel(player) {
+  if (isEliteClubPlayer(player)) return "豪门";
+  const club = Number(player.clubCompetitiveness ?? player.environmentScore ?? 0);
+  if (club >= 86) return "强队";
+  if (club >= 78) return "主流";
+  if (club >= 68) return "中游";
+  return "低级别";
+}
+
+function getClubRoleLabel(player) {
+  const stats = getClubPlayerStats(player)?.latestSeason?.metrics;
+  const appearances = metricNumber(stats?.appearances);
+  const starts = metricNumber(stats?.starts);
+  if (appearances >= 5) {
+    const startShare = starts / appearances;
+    if (startShare >= 0.65) return "俱乐部主力";
+    if (startShare >= 0.35) return "轮换";
+    return "替补";
+  }
+
+  const role = Number(player.roleStability ?? player.environmentScore ?? 0);
+  if (role >= 86) return "俱乐部主力";
+  if (role >= 74) return "轮换";
+  if (role > 0) return "替补";
+  return "角色未知";
+}
+
+function getClubNameKey(value) {
+  return normalizeAscii(String(value ?? "").replace(/\s*\([A-Z]{2,3}\)\s*$/i, ""));
+}
+
+function formatClubZhName(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "未标注";
+  return CLUB_ZH_LABELS[getClubNameKey(raw)] ?? raw.replace(/\s*\([A-Z]{2,3}\)\s*$/i, "");
+}
+
+function getLeagueCodeFromClub(value) {
+  return /\(([A-Z]{2,3})\)\s*$/i.exec(String(value ?? "").trim())?.[1]?.toUpperCase() ?? "";
+}
+
+function getLeagueLabel(player, rawClub, rawClubEn) {
+  const code = String(player.leagueCode ?? (getLeagueCodeFromClub(rawClub) || getLeagueCodeFromClub(rawClubEn))).toUpperCase();
+  if (LEAGUE_CODE_LABELS[code]) return LEAGUE_CODE_LABELS[code];
+  const statsLeague = getClubPlayerStats(player)?.latestSeason?.leagueName;
+  return statsLeague || code || "";
+}
+
+function getPlayerClubProfile(player, team = null) {
+  const roster = findRosterPlayer(team, player);
+  const source = roster ? { ...(player ?? {}), ...roster } : (player ?? {});
+  const rawClub = [source.club, source.clubName, roster?.club]
+    .find((value) => String(value ?? "").trim()) ?? "未标注";
+  const rawClubEn = [source.clubEn, source.clubNameEn, roster?.clubEn]
+    .find((value) => String(value ?? "").trim()) ?? "";
+  const club = formatClubZhName(rawClub);
+  const clubEn = getClubNameKey(rawClub) === getClubNameKey(rawClubEn) ? "" : rawClubEn;
+  const enriched = { ...source, club, clubEn, clubRaw: rawClub };
+  const level = getClubLevelLabel(enriched);
+  const role = getClubRoleLabel(enriched);
+  const league = getLeagueLabel(enriched, rawClub, rawClubEn);
+  return {
+    club,
+    clubEn,
+    league,
+    level,
+    role,
+    elite: level === "豪门",
+    starter: role === "俱乐部主力",
+    highlighted: level === "豪门" || role === "俱乐部主力"
+  };
 }
 
 function normalizeAscii(value) {
@@ -3457,5 +3683,5 @@ export {
   getFullScheduleRows, matchMatchesScheduleFilters, getWorldCupMatches, getScheduleSourceLabel,
   formatGeneratedAt, formatVenueName, tryLiveLineup, saveLineupCache, readLineupCache, ensureTeamLineup, recomputeWithLineup,
   getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, zhPlayerName, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey,
-  getBenchmarkComparison, getMatchBenchmarkRow, getModelProbabilities, getBookmakerProbabilities, getEloProbabilities
+  getBenchmarkComparison, getMatchBenchmarkRow, getModelProbabilities, getBookmakerProbabilities, getEloProbabilities, getPlayerClubProfile
 };
