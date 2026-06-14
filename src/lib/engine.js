@@ -1611,8 +1611,8 @@ function translateLineupPosition(position) {
   return map[position] ?? (position || "位置待定");
 }
 
-function saveLineupCache(teamId, lineup) {
-  const entry = { savedAt: new Date().toISOString(), lineup };
+function saveLineupCache(teamId, lineup, meta = {}) {
+  const entry = { savedAt: new Date().toISOString(), ...meta, lineup };
   try {
     localStorage.setItem(
       `${LINEUP_API.cachePrefix}${teamId}`,
@@ -1621,6 +1621,39 @@ function saveLineupCache(teamId, lineup) {
   } catch {
     // localStorage 不可用时忽略缓存
   }
+  return entry;
+}
+
+function getMatchLineupBasisMs(match) {
+  const kickoff = getMatchKickoffMs(match);
+  if (Number.isFinite(kickoff)) return kickoff;
+  const dateMs = new Date(match?.date ?? 0).getTime();
+  return Number.isFinite(dateMs) ? dateMs : Date.now();
+}
+
+function shouldSaveTeamLineupBasis(teamId, match) {
+  const cached = readLineupCache(teamId);
+  if (!cached?.lineup?.length) return true;
+  if (!["actual-match", "match-lineup"].includes(cached.source)) return true;
+  const cachedBasisMs = Number(cached.basisMatchMs);
+  if (!Number.isFinite(cachedBasisMs)) return true;
+  return getMatchLineupBasisMs(match) >= cachedBasisMs;
+}
+
+function saveTeamLineupBasis(team, lineup, match, side, phase, savedAt) {
+  if (!team?.id || !lineup?.length || !shouldSaveTeamLineupBasis(team.id, match)) return null;
+  const entry = saveLineupCache(team.id, lineup, {
+    savedAt,
+    source: phase === "post" ? "actual-match" : "match-lineup",
+    basisMatchKey: matchLineupKey(match),
+    basisMatchMs: getMatchLineupBasisMs(match),
+    basisMatchDate: match.date ?? "",
+    basisMatchSide: side
+  });
+  applyTeamLineup(team.id, lineup, {
+    savedAt: entry.savedAt,
+    source: entry.source
+  });
   return entry;
 }
 
@@ -3217,12 +3250,15 @@ async function ensureMatchLineups(match, teamA, teamB) {
     const fetched = await fetchMatchLineups(match, teamA, teamB);
     if (!fetched) return entry;
     const store = readMatchLineupStore();
+    const savedAt = new Date().toISOString();
     store[key] = {
-      savedAt: new Date().toISOString(),
+      savedAt,
       phase: started ? "post" : "pre",
       lineups: fetched
     };
     writeMatchLineupStore(store);
+    saveTeamLineupBasis(teamA, fetched.home, match, "home", store[key].phase, savedAt);
+    saveTeamLineupBasis(teamB, fetched.away, match, "away", store[key].phase, savedAt);
     appState.matchLineupVersion += 1;
     return store[key];
   })();
