@@ -538,6 +538,8 @@ const SCHEDULE_API_COOLDOWN_MS = 10 * 60 * 1000;
 const BANNER_UPCOMING_WINDOW_MS = 2 * 60 * 60 * 1000;
 const BANNER_ESTIMATED_LIVE_MS = 2 * 60 * 60 * 1000;
 const BANNER_ACTIVE_REFRESH_MS = 60 * 1000;
+const HOME_ACTIVE_MATCH_LIMIT = 8;
+const HOME_FINISHED_MATCH_LIMIT = 6;
 
 const LINEUP_API = {
   baseUrl: "/api/football",
@@ -1344,17 +1346,18 @@ function getFeaturedBannerMatches() {
     .sort(compareBannerKickoff);
 
   const upcomingToday = upcoming.filter((match) => match.date === today);
-  const upcomingVisible = upcomingToday.length ? upcomingToday : upcoming.slice(0, Math.max(0, 3 - liveMatches.length));
-  const finishedVisible = finishedRecent.slice(0, liveMatches.length || upcomingVisible.length ? 3 : 6);
+  const upcomingVisible = (upcomingToday.length ? upcomingToday : upcoming)
+    .slice(0, Math.max(0, HOME_ACTIVE_MATCH_LIMIT - liveMatches.length));
+  const finishedVisible = finishedRecent.slice(0, HOME_FINISHED_MATCH_LIMIT);
 
   return [...liveMatches, ...upcomingVisible, ...finishedVisible]
     .sort((a, b) => {
       const priority = { IN_PLAY: 0, PAUSED: 0, TIMED: 1, SCHEDULED: 1, FINISHED: 2 };
       const priorityDiff = (priority[a.status] ?? 9) - (priority[b.status] ?? 9);
       if (priorityDiff) return priorityDiff;
+      if (a.status === "FINISHED" && b.status === "FINISHED") return compareBannerKickoff(b, a);
       return compareBannerKickoff(a, b);
-    })
-    .slice(0, 8);
+    });
 }
 
 function persistFinishedHomeResults(matches) {
