@@ -321,7 +321,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   white-space: nowrap;
 }
 
-.live-meta, .live-venue, .live-predict, .live-odds {
+.live-meta, .live-venue, .live-predict, .live-market, .live-odds {
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -343,6 +343,21 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   min-width: 0;
   overflow-wrap: anywhere;
   line-height: 1.35;
+}
+
+.live-market {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.live-market strong {
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.live-market.disagree {
+  color: var(--gold);
 }
 
 .live-predict.hit {

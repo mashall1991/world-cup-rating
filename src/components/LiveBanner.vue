@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import {
   appState, getFeaturedBannerMatches, getBannerMatchStatus, findTeamByName,
-  formatTeamName, getPredictionResultText, getPredictionStats,
+  formatTeamName, getPrediction, getPredictionResultText, getPredictionStats,
   ensureMatchLineups, getLineupAdjustedPair, renderOddsText, getBannerClockDelay,
-  formatVenueName
+  formatVenueName, getBookmakerProbabilities, formatPercent
 } from "../lib/engine.js";
 import { openCompare } from "../lib/ui.js";
 
@@ -27,8 +27,10 @@ const cards = computed(() => {
     // 置顶卡片展示模型预测；已完赛场次额外展示命中结果。
     // 有保存的实际首发时按首发修正分计算。
     let predictText = "";
+    let prediction = null;
     if (teamA && teamB) {
       const pair = getLineupAdjustedPair(local, teamA, teamB);
+      prediction = getPrediction(pair.teamA, pair.teamB, local);
       predictText = getPredictionResultText(
         { ...local, score: local.liveScore, resultFinal: local.status === "FINISHED" },
         pair.teamA,
@@ -37,8 +39,10 @@ const cards = computed(() => {
       if (pair.adjusted) predictText += " · 按实际首发";
     }
     const predictParts = predictionParts(predictText);
+    const market = getMarketLean(local, prediction, teamA, teamB);
     return {
       local, teamA, teamB, stageText, venueText, status, predictText, predictParts,
+      market,
       odds: renderOddsText(local),
       key: `${local.date}|${local.team1}|${local.team2}`
     };
@@ -93,6 +97,24 @@ function formatVenueText(match) {
     .map(formatVenueName)
     .filter((label, index, list) => label && list.indexOf(label) === index);
   return labels.join(" · ") || "地点未标注";
+}
+
+function getMarketLean(match, prediction, teamA, teamB) {
+  const probabilities = getBookmakerProbabilities(match);
+  if (!probabilities || !teamA || !teamB) return null;
+  const options = [
+    { outcome: "home", label: teamA.name, value: probabilities.home },
+    { outcome: "draw", label: "平局", value: probabilities.draw },
+    { outcome: "away", label: teamB.name, value: probabilities.away }
+  ].filter((item) => Number.isFinite(item.value));
+  if (!options.length) return null;
+  const leader = options.sort((a, b) => b.value - a.value)[0];
+  return {
+    label: leader.label,
+    confidence: formatPercent(leader.value),
+    disagree: Boolean(prediction?.outcome && prediction.outcome !== leader.outcome),
+    bookmaker: probabilities.bookmaker ?? ""
+  };
 }
 
 function scheduleBannerClock() {
@@ -155,6 +177,10 @@ function onCardClick(card) {
       <span v-if="card.predictText || card.odds" class="live-card-info">
         <span v-if="card.predictText" class="live-predict" :class="{ hit: card.predictParts.hit }">
           <strong v-if="card.predictParts.hit">{{ card.predictParts.hit }}</strong>{{ card.predictParts.prefix }}<strong v-if="card.predictParts.favorite" class="live-favorite-team">{{ card.predictParts.favorite }}</strong>{{ card.predictParts.confidencePrefix }}<span v-if="card.predictParts.confidence" class="live-confidence">{{ card.predictParts.confidence }}</span>{{ card.predictParts.suffix }}
+        </span>
+        <span v-if="card.market" class="live-market" :class="{ disagree: card.market.disagree }">
+          {{ card.market.disagree ? "市场分歧：" : "市场倾向 " }}<strong>{{ card.market.label }}</strong>
+          <span class="live-confidence">{{ card.market.confidence }}</span>
         </span>
         <span v-if="card.odds" class="live-odds">{{ card.odds }}</span>
       </span>
