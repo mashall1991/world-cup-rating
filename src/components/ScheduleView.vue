@@ -4,9 +4,27 @@ import {
   appState, getRecentMatchRows, getFullScheduleRows,
   getScheduleSourceLabel, formatGeneratedAt, findTeamByName,
   formatTeamName, getPredictionBadge, getPredictionResultText, getMissingRatingLabel,
-  getLineupAdjustedPair, renderOddsText
+  getLineupAdjustedPair, renderOddsText, getMatchBenchmarkRow
 } from "../lib/engine.js";
 import { openCompare } from "../lib/ui.js";
+
+function formatProbs(probs) {
+  if (!probs) return null;
+  return {
+    home: Math.round(probs.home * 100),
+    draw: Math.round(probs.draw * 100),
+    away: Math.round(probs.away * 100)
+  };
+}
+
+function buildBenchLines(bench) {
+  const lines = [
+    { key: "model", name: "模型", probs: formatProbs(bench.model) },
+    { key: "bookmaker", name: "博彩", probs: formatProbs(bench.bookmaker) },
+    { key: "elo", name: "Elo", probs: formatProbs(bench.elo) }
+  ];
+  return { lines, show: lines.some((line) => line.probs) };
+}
 
 const updatedText = computed(() => {
   const updatedAt = appState.liveSchedule?.fetchedAt ?? appState.publicData?.manifest?.generated_at;
@@ -40,7 +58,8 @@ const rows = computed(() => {
         prediction: teamA && teamB ? getPredictionResultText(match, pair.teamA, pair.teamB) + suffix : "",
         missed: badge === "预测未中",
         missing: getMissingRatingLabel(match, teamA, teamB),
-        odds: renderOddsText(match)
+        odds: renderOddsText(match),
+        benchmark: teamA && teamB ? buildBenchLines(getMatchBenchmarkRow(match, pair.teamA, pair.teamB)) : null
       };
     })
   };
@@ -92,6 +111,22 @@ function onRowClick(item) {
               <span class="match-team away">{{ formatTeamName(item.match.team2) }}</span>
             </div>
             <div v-if="item.odds" class="match-odds">{{ item.odds }}</div>
+            <div v-if="item.benchmark && item.benchmark.show" class="match-benchmark" aria-label="三方胜平负概率对照">
+              <div
+                v-for="line in item.benchmark.lines"
+                :key="line.key"
+                class="bench-line"
+                :class="{ 'bench-line-model': line.key === 'model' }"
+              >
+                <span class="bench-name">{{ line.name }}</span>
+                <template v-if="line.probs">
+                  <span class="bench-prob">主<b>{{ line.probs.home }}</b></span>
+                  <span class="bench-prob">平<b>{{ line.probs.draw }}</b></span>
+                  <span class="bench-prob">客<b>{{ line.probs.away }}</b></span>
+                </template>
+                <span v-else class="bench-na">无数据</span>
+              </div>
+            </div>
           </div>
           <div class="match-side">
             <span class="match-pill">{{ item.match.badge }}</span>
@@ -105,3 +140,40 @@ function onRowClick(item) {
     </section>
   </section>
 </template>
+
+<style scoped>
+.match-benchmark {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.bench-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-line-model {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.bench-name {
+  flex: none;
+  width: 30px;
+}
+
+.bench-prob b {
+  font-weight: 700;
+  margin-left: 1px;
+}
+
+.bench-line-model .bench-prob b { color: var(--accent); }
+
+.bench-na { color: var(--text-faint); }
+</style>

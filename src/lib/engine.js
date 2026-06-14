@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { eloRatings, ELO_SNAPSHOT_DATE, ELO_SOURCE } from "../data/elo-ratings.js";
 
 const defaultTeams = [
   {
@@ -413,8 +414,8 @@ const VENUE_ZH_LABELS = Object.freeze({
 });
 
 const scoreComponentConfig = [
-  ["squadQuality", "阵容质量", 45, "#1f7a4d"],
-  ["recentMatchRating", "近期比赛强度", 30, "#315f9f"],
+  ["squadQuality", "阵容质量", 42, "#1f7a4d"],
+  ["recentMatchRating", "近期比赛强度", 33, "#315f9f"],
   ["positionalBalance", "位置平衡", 10, "#bf7b1f"],
   ["squadDepth", "阵容深度", 8, "#277a86"],
   ["cohesionContinuity", "协同连续性", 4, "#7b2f35"],
@@ -457,6 +458,77 @@ const ELITE_CLUB_PATTERNS = [
   "juventus",
   "borussia dortmund"
 ];
+
+// 跨联赛强度校正（与 scripts/backtest-ucl.mjs 同源）：
+// API-Football 的俱乐部赛季评分是“联赛内相对值”——在弱联赛刷出的 7.3 ≠ 五大联赛的 7.3。
+// 不校正会让“小池塘大鱼”虚高（欧冠回测里博多/格利姆特、贝尔格莱德红星、土超双雄都异常靠前）。
+// 做法：把评分向中性基准收缩，收缩力度 = 联赛强度系数（强联赛=1，越弱越向 BASE 压）：
+//   adjusted = BASE + (rating - BASE) * factor
+// 该项只作用于 getClubPerformanceAdjustment（喂入阵容质量的“俱乐部表现”加成），
+// 不改动球员的 leagueStrength / clubCompetitiveness（那两项本就按联赛强度赋值）。
+// 系数粗略参照 UEFA 联赛系数，真正的裁判是欧冠回测命中率（avgFull 64.1%→66.0%，xiOnly 64.1%→68.6%）。
+const RATING_NEUTRAL_BASELINE = 6.5;
+const LEAGUE_STRENGTH_FACTOR = {
+  // 五大联赛
+  "Premier League": 1.0,
+  "La Liga": 1.0,
+  "Serie A": 0.96,
+  "Bundesliga": 0.96,
+  "Ligue 1": 0.9,
+  // 欧战 / 跨洲赛事：评分本身就是高水平对抗，基本不打折
+  "UEFA Champions League": 1.0,
+  "UEFA Europa League": 0.9,
+  "UEFA Europa Conference League": 0.8,
+  "FIFA Club World Cup": 0.95,
+  // 二档欧洲联赛
+  "Primeira Liga": 0.82,
+  "Eredivisie": 0.8,
+  "Pro League": 0.74,
+  "Süper Lig": 0.72,
+  "Championship": 0.72,
+  "Serie B": 0.66,
+  "Segunda División": 0.66,
+  "2. Bundesliga": 0.66,
+  "Ligue 2": 0.64,
+  "Premiership": 0.62,
+  "Super League": 0.62,
+  "Super League 1": 0.62,
+  "Superliga": 0.6,
+  "Super Liga": 0.52,
+  "Eliteserien": 0.48,
+  "Allsvenskan": 0.5,
+  "1. Division": 0.5,
+  "Liga I": 0.55,
+  "Segunda Liga": 0.55,
+  "Challenger Pro League": 0.55,
+  "League One": 0.55,
+  // 其它大洲
+  "Liga MX": 0.6,
+  "Major League Soccer": 0.58,
+  "J1 League": 0.56,
+  "K League 1": 0.56,
+  "A-League": 0.5,
+  "Primera A": 0.55,
+  "Torneo Federal A": 0.45,
+  "Stars League": 0.5,
+  "Persian Gulf Pro League": 0.5,
+  "Premier Soccer League": 0.5,
+  "AFC Champions League Elite": 0.7,
+  "AFC Champions League Two": 0.6,
+  "CONCACAF Champions League": 0.62
+};
+// 未列出的联赛（多为弱联赛或杯赛长尾，每个仅个位数球员）按中性折扣兜底，与回测一致。
+const LEAGUE_STRENGTH_DEFAULT = 0.75;
+
+function leagueStrengthFactor(leagueName) {
+  if (!leagueName) return LEAGUE_STRENGTH_DEFAULT;
+  return LEAGUE_STRENGTH_FACTOR[leagueName] ?? LEAGUE_STRENGTH_DEFAULT;
+}
+
+function adjustCrossLeagueRating(rating, leagueName) {
+  if (!(rating > 0)) return rating;
+  return RATING_NEUTRAL_BASELINE + (rating - RATING_NEUTRAL_BASELINE) * leagueStrengthFactor(leagueName);
+}
 
 // 实时数据走同源 /api 代理（server.js 转发到 API-Football 并在服务端附加 token）。
 // 这样浏览器不受 CORS 限制，token 也不暴露在前端源码里。
@@ -2020,8 +2092,38 @@ function buildPublicPerformanceIndex(recentResults) {
   records.forEach((_, teamName) => {
     ratings.set(teamName, clamp((ppmOf(teamName) / 3) * 100));
   });
+
+  // 独立强度锚：World Football Elo（跨洲校准）。把它按“结果评分”的均值/标准差对齐到同一量纲后，
+  // 混入对手系数，打破纯结果 SOS 的“区域弱池自循环”。只用于估对手强度，不直接计入球队自身战绩分。
+  const eloByKey = new Map(
+    Object.entries(eloRatings).map(([name, value]) => [normalizeTeamKey(name), Number(value)])
+  );
+  const eloAligned = (() => {
+    const paired = [...ratings.keys()]
+      .map((teamName) => ({ teamName, elo: eloByKey.get(normalizeTeamKey(teamName)) }))
+      .filter((row) => Number.isFinite(row.elo));
+    if (paired.length < 8) return new Map(); // Elo 覆盖太少则不启用，退回纯结果 SOS
+    const resultVals = paired.map((row) => ratings.get(row.teamName));
+    const eloVals = paired.map((row) => row.elo);
+    const meanOf = (arr) => arr.reduce((sum, x) => sum + x, 0) / arr.length;
+    const stdOf = (arr, m) => Math.sqrt(arr.reduce((sum, x) => sum + (x - m) ** 2, 0) / arr.length) || 1;
+    const mr = meanOf(resultVals);
+    const sr = stdOf(resultVals, mr);
+    const me = meanOf(eloVals);
+    const se = stdOf(eloVals, me);
+    const aligned = new Map();
+    paired.forEach((row) => aligned.set(row.teamName, clamp(mr + ((row.elo - me) / se) * sr)));
+    return aligned;
+  })();
+  const ELO_ANCHOR = 0.4; // 对手强度 = 结果自举 0.6 + Elo 锚 0.4
+
   for (let round = 0; round < 4; round += 1) {
-    const factorOf = (teamName) => 0.6 + ((ratings.get(teamName) ?? 50) / 100) * 0.8;
+    const strengthOf = (teamName) => {
+      const result = ratings.get(teamName) ?? 50;
+      const elo = eloAligned.get(teamName);
+      return Number.isFinite(elo) ? result * (1 - ELO_ANCHOR) + elo * ELO_ANCHOR : result;
+    };
+    const factorOf = (teamName) => 0.6 + (strengthOf(teamName) / 100) * 0.8;
     const next = new Map();
     records.forEach((recs, teamName) => {
       let num = 0;
@@ -2116,7 +2218,8 @@ function applyPublicPerformance(team) {
   const calibratedTeamResults = performance
     ? calibratePublicPerformance(team, performance.score)
     : Number(team.dimensions?.performance ?? playerParticipation);
-  const blendedPerformance = clamp(playerParticipation * 0.7 + calibratedTeamResults * 0.3);
+  // 实际近期战绩（已含跨洲 Elo 锚的 SOS）占比从 0.3 提到 0.4，让“打了谁、赢没赢”更有发言权。
+  const blendedPerformance = clamp(playerParticipation * 0.6 + calibratedTeamResults * 0.4);
 
   return {
     ...team,
@@ -2288,8 +2391,9 @@ function calibratePublicPerformance(team, publicScore) {
       Number(team.dimensions?.age ?? baseline.age) * 0.1 +
       Number(baseline.performance ?? 56) * 0.2
   );
-  const cappedDelta = Math.max(-12, Math.min(12, score - prior));
-  return clamp(prior + cappedDelta * 0.65);
+  // 放宽对环境先验的收缩：截断 ±12→±15、回归系数 0.65→0.75，让真实战绩能更多地偏离先验。
+  const cappedDelta = Math.max(-15, Math.min(15, score - prior));
+  return clamp(prior + cappedDelta * 0.75);
 }
 
 function isFriendly(match) {
@@ -2327,35 +2431,38 @@ function normalizeTeamKey(value) {
 }
 
 function normalizeTeams(teams) {
-  return rankTeams(
-    ensureTournamentTeams(teams).map((team, index) => {
-      const players = Array.isArray(team.players) ? team.players.map(normalizePlayer) : [];
-      const normalized = {
-        ...team,
-        id: team.id ?? slugify(team.name ?? `team-${index + 1}`),
-        nameEn: team.nameEn ?? team.name ?? `Team ${index + 1}`,
-        flag: team.flag ?? "🏳️",
-        badge: team.badge ?? String(team.name ?? "TM").slice(0, 3).toUpperCase(),
-        badgeColor: team.badgeColor ?? "#1f7a4d",
-        confederation: team.confederation ?? "N/A",
-        squadVersion: team.squadVersion ?? { date: "未标注", status: "未标注" },
-        dimensions: fillScores(team.dimensions),
-        environmentBreakdown: fillScores(team.environmentBreakdown),
-        cohesionBreakdown: fillScores(team.cohesionBreakdown),
-        performanceBreakdown: fillScores(team.performanceBreakdown),
-        ageProfile: {
-          weightedAgeScore: Number(team.ageProfile?.weightedAgeScore ?? team.dimensions?.age ?? 0),
-          primeShare: Number(team.ageProfile?.primeShare ?? 0),
-          riskPositions: team.ageProfile?.riskPositions ?? "未标注"
-        },
-        squadBalanceAdjustment: Number(team.squadBalanceAdjustment ?? 0),
-        availabilityAdjustment: Number(team.availabilityAdjustment ?? 1),
-        players,
-        startingXI: normalizeStartingXI(team.startingXI, players, team.name)
-      };
-      return withScores(applyClubDataAdjustments(applyPublicPerformance(normalized)));
-    })
-  );
+  // 第一遍：把每支球队补全维度并叠加公开战绩/俱乐部数据修正，得到带完整 dimensions 的“准成品”。
+  const prepared = ensureTournamentTeams(teams).map((team, index) => {
+    const players = Array.isArray(team.players) ? team.players.map(normalizePlayer) : [];
+    const normalized = {
+      ...team,
+      id: team.id ?? slugify(team.name ?? `team-${index + 1}`),
+      nameEn: team.nameEn ?? team.name ?? `Team ${index + 1}`,
+      flag: team.flag ?? "🏳️",
+      badge: team.badge ?? String(team.name ?? "TM").slice(0, 3).toUpperCase(),
+      badgeColor: team.badgeColor ?? "#1f7a4d",
+      confederation: team.confederation ?? "N/A",
+      squadVersion: team.squadVersion ?? { date: "未标注", status: "未标注" },
+      dimensions: fillScores(team.dimensions),
+      environmentBreakdown: fillScores(team.environmentBreakdown),
+      cohesionBreakdown: fillScores(team.cohesionBreakdown),
+      performanceBreakdown: fillScores(team.performanceBreakdown),
+      ageProfile: {
+        weightedAgeScore: Number(team.ageProfile?.weightedAgeScore ?? team.dimensions?.age ?? 0),
+        primeShare: Number(team.ageProfile?.primeShare ?? 0),
+        riskPositions: team.ageProfile?.riskPositions ?? "未标注"
+      },
+      squadBalanceAdjustment: Number(team.squadBalanceAdjustment ?? 0),
+      availabilityAdjustment: Number(team.availabilityAdjustment ?? 1),
+      players,
+      startingXI: normalizeStartingXI(team.startingXI, players, team.name)
+    };
+    return applyClubDataAdjustments(applyPublicPerformance(normalized));
+  });
+
+  // 第二遍：阵容质量改用全场 Min-Max 归一化（见 calculateSquadQuality），需先用整批球队定出 raw 的上下界。
+  updateSquadQualityBounds(prepared);
+  return rankTeams(prepared.map(withScores));
 }
 
 function ensureTournamentTeams(teams) {
@@ -2534,10 +2641,12 @@ function calculateScoreComponents(team) {
   };
 }
 
-function calculateSquadQuality(team) {
+// 阵容质量的 raw（未归一化）分：球员加权质量 + 各项加成，可超过 100、也可低于 0。
+// 单调反映“这套阵容真实有多强”，留待 calculateSquadQuality 用全场 Min-Max 归一化。
+function calculateRawSquadQuality(team) {
   const players = Array.isArray(team.players) ? team.players : [];
   const fallback = Number(team.dimensions.environment ?? 0);
-  if (!players.length) return clamp(fallback);
+  if (!players.length) return fallback;
 
   const starters = players.filter((player) => Number(player.appearanceWeight) === 1);
   const rotation = players.filter((player) => Number(player.appearanceWeight) === 0.55);
@@ -2566,7 +2675,30 @@ function calculateSquadQuality(team) {
       lowIntensityOldStarters * 1.4 +
       lineIntegrityAdjustment;
 
-  return clamp(softCapSquadQuality(rawQuality) + calculateClubDataSquadAdjustment(starters, rotation));
+  return rawQuality + calculateClubDataSquadAdjustment(starters, rotation);
+}
+
+// 全场 raw 分的上下界，由 normalizeTeams 整批球队定出，供 Min-Max 归一化复用。
+// 单队实时首发重算（recomputeWithLineup）沿用既有界，越界处由归一化夹到 [0,100]。
+let squadQualityBounds = null;
+
+function updateSquadQualityBounds(teams) {
+  const raws = teams.map(calculateRawSquadQuality).filter((value) => Number.isFinite(value));
+  if (!raws.length) {
+    squadQualityBounds = null;
+    return;
+  }
+  squadQualityBounds = { min: Math.min(...raws), max: Math.max(...raws) };
+}
+
+// 阵容质量 = 全场 Min-Max 归一化后 ×100：最强阵容→100、最弱→0，顶端不再被 softCap 压扁。
+// 界尚未建立（早期单测/异常）时退回直接 clamp，避免除零。
+function calculateSquadQuality(team) {
+  const raw = calculateRawSquadQuality(team);
+  const bounds = squadQualityBounds;
+  if (!bounds || !(bounds.max > bounds.min)) return clamp(raw);
+  const normalized = ((raw - bounds.min) / (bounds.max - bounds.min)) * 100;
+  return Math.max(0, Math.min(100, normalized));
 }
 
 function calculateStarCoreAdjustment(starters) {
@@ -2608,30 +2740,25 @@ function getEliteRoleValue(player) {
   return -0.35;
 }
 
-function calculateLineIntegrityAdjustment(starters, fallback) {
-  const lineScores = ["GK", "DF", "MF", "FW"].map((code) => {
+// 四线（GK/DF/MF/FW）主力的加权质量分。
+function starterLineScores(starters, fallback) {
+  return ["GK", "DF", "MF", "FW"].map((code) => {
     const group = starters.filter((player) => (player.positionCode ?? positionCodeFromLabel(player.position)) === code);
     return weightedPlayerScore(group, fallback);
   });
-  const weakest = Math.min(...lineScores);
-  const strongest = Math.max(...lineScores);
-  const spread = strongest - weakest;
-  const weakPenalty =
+}
+
+// 绝对短板（进 squadQuality）：某条线真的弱就扣，四线都 ≥84 给 +2 均衡奖。
+// 相对失衡不在这里——它改为在 withScores 里直接扣总分，避免被 42% 权重+归一化稀释。
+function calculateLineIntegrityAdjustment(starters, fallback) {
+  const weakest = Math.min(...starterLineScores(starters, fallback));
+  return (
     weakest < 68 ? -6 :
     weakest < 72 ? -4 :
     weakest < 76 ? -2 :
     weakest >= 84 ? 2 :
-    0;
-  const spreadPenalty = spread > 18 ? -3 : spread > 14 ? -1.5 : 0;
-  return weakPenalty + spreadPenalty;
-}
-
-function softCapSquadQuality(value) {
-  const score = Number(value);
-  if (!Number.isFinite(score)) return 0;
-  if (score <= 90) return score;
-  if (score <= 96) return 90 + (score - 90) * 0.72;
-  return Math.min(99.2, 94.32 + (score - 96) * 0.28);
+    0
+  );
 }
 
 function calculateClubDataSquadAdjustment(starters, rotation) {
@@ -2762,7 +2889,8 @@ function getClubPerformanceAdjustment(player) {
   const minutes = metricNumber(metrics.minutes);
   const starts = metricNumber(metrics.starts);
   const appearances = metricNumber(metrics.appearances);
-  const rating = metricNumber(metrics.rating);
+  // 跨联赛强度校正：弱联赛刷出的高评分向中性基准收缩后再参与加成（见 LEAGUE_STRENGTH_FACTOR）。
+  const rating = adjustCrossLeagueRating(metricNumber(metrics.rating), stats?.latestSeason?.leagueName);
   const goals = metricNumber(metrics.goals);
   const assists = metricNumber(metrics.assists);
   const keyPasses = metricNumber(metrics.keyPasses);
@@ -3116,6 +3244,163 @@ function getLineupAdjustedPair(match, teamA, teamB) {
   return { teamA: adjA ?? teamA, teamB: adjB ?? teamB, adjusted: Boolean(adjA || adjB) };
 }
 
+// ============================================================
+// 基准对比：把"你的模型 / 博彩赔率 / Elo"都转成归一化的主-平-客三路概率，
+// 再用命中率、Brier 分、对数损失三个指标做回测对比。
+// Brier 与对数损失越低越好；命中率越高越好。
+// ============================================================
+
+const eloIndex = new Map(Object.entries(eloRatings).map(([name, value]) => [normalizeTeamKey(name), Number(value)]));
+// Elo 三路概率参数：实力相当时平局概率最高，随评分差按高斯衰减。
+const ELO_DRAW_MAX = 0.28;
+const ELO_DRAW_SIGMA = 200;
+
+function getTeamElo(team) {
+  if (!team) return null;
+  const key = normalizeTeamKey(team.nameEn ?? team.name);
+  return eloIndex.has(key) ? eloIndex.get(key) : null;
+}
+
+function clampProb(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return 0;
+  return Math.min(1, Math.max(0, v));
+}
+
+function normalizeProbs(probs) {
+  const sum = probs.home + probs.draw + probs.away;
+  if (!(sum > 0)) return null;
+  return { home: probs.home / sum, draw: probs.draw / sum, away: probs.away / sum };
+}
+
+// 你的模型：看好信心(看好方胜) + 平局信心 → 归一化三路概率
+function getModelProbabilities(teamA, teamB, match = null) {
+  const prediction = getPrediction(teamA, teamB, match);
+  if (!prediction) return null;
+  const pDraw = clampProb(prediction.drawConfidence);
+  const favShare = clampProb(prediction.confidence);
+  const favProb = (1 - pDraw) * favShare;
+  const dogProb = (1 - pDraw) * (1 - favShare);
+  const probs = prediction.outcome === "away"
+    ? { home: dogProb, draw: pDraw, away: favProb }
+    : { home: favProb, draw: pDraw, away: dogProb };
+  return normalizeProbs(probs);
+}
+
+// 博彩：赔率取倒数得隐含概率，再除以总和去抽水(de-vig)
+function getBookmakerProbabilities(match) {
+  const odds = getMatchOdds(match);
+  if (!odds) return null;
+  const h = Number(odds.home);
+  const d = Number(odds.draw);
+  const a = Number(odds.away);
+  if (![h, d, a].every((v) => Number.isFinite(v) && v > 1)) return null;
+  const ih = 1 / h;
+  const id = 1 / d;
+  const ia = 1 / a;
+  const sum = ih + id + ia;
+  if (!(sum > 0)) return null;
+  return { home: ih / sum, draw: id / sum, away: ia / sum, bookmaker: odds.bookmaker ?? null };
+}
+
+// Elo：评分差 → 期望得分(logistic) + 高斯平局模型
+function getEloProbabilities(teamA, teamB) {
+  const eloA = getTeamElo(teamA);
+  const eloB = getTeamElo(teamB);
+  if (eloA === null || eloB === null) return null;
+  const dr = eloA - eloB;
+  const expectedA = 1 / (1 + Math.pow(10, -dr / 400));
+  const pDraw = ELO_DRAW_MAX * Math.exp(-(dr * dr) / (2 * ELO_DRAW_SIGMA * ELO_DRAW_SIGMA));
+  return {
+    home: (1 - pDraw) * expectedA,
+    draw: pDraw,
+    away: (1 - pDraw) * (1 - expectedA)
+  };
+}
+
+const BENCHMARK_OUTCOMES = ["home", "draw", "away"];
+
+function topPick(probs) {
+  return BENCHMARK_OUTCOMES.reduce((best, o) => (probs[o] > probs[best] ? o : best), "home");
+}
+
+function brierScore(probs, actual) {
+  return BENCHMARK_OUTCOMES.reduce((sum, o) => {
+    const diff = (probs[o] ?? 0) - (actual === o ? 1 : 0);
+    return sum + diff * diff;
+  }, 0);
+}
+
+function logLossScore(probs, actual) {
+  const p = Math.min(1, Math.max(1e-6, probs[actual] ?? 0));
+  return -Math.log(p);
+}
+
+function createBenchmarkAccumulator(label) {
+  return { label, n: 0, hits: 0, brier: 0, logloss: 0 };
+}
+
+function accumulateBenchmark(acc, probs, actual) {
+  acc.n += 1;
+  if (topPick(probs) === actual) acc.hits += 1;
+  acc.brier += brierScore(probs, actual);
+  acc.logloss += logLossScore(probs, actual);
+}
+
+function finalizeBenchmark(acc) {
+  return {
+    label: acc.label,
+    n: acc.n,
+    accuracy: acc.n ? acc.hits / acc.n : 0,
+    brier: acc.n ? acc.brier / acc.n : null,
+    logloss: acc.n ? acc.logloss / acc.n : null
+  };
+}
+
+// 回测：遍历完赛比赛，只统计三方都能给出概率的场次(保证同一批样本公平对比)
+function getBenchmarkComparison() {
+  const liveFinished = (appState.liveSchedule?.matches ?? [])
+    .map(liveMatchToLocal)
+    .filter((match) => match.status === "FINISHED");
+  const merged = mergeFinishedMatches(liveFinished, readFinishedHomeResults());
+  const accumulators = {
+    model: createBenchmarkAccumulator("你的模型"),
+    bookmaker: createBenchmarkAccumulator("博彩赔率"),
+    elo: createBenchmarkAccumulator("Elo")
+  };
+  let sampleSize = 0;
+  merged.forEach((match) => {
+    const teamA = findTeamByName(match.team1);
+    const teamB = findTeamByName(match.team2);
+    const actual = getScoreOutcome(match.liveScore ?? match.score);
+    if (!teamA || !teamB || !actual) return;
+    const pair = getLineupAdjustedPair(match, teamA, teamB);
+    const probsByModel = {
+      model: getModelProbabilities(pair.teamA, pair.teamB, match),
+      bookmaker: getBookmakerProbabilities(match),
+      elo: getEloProbabilities(teamA, teamB)
+    };
+    if (!probsByModel.model || !probsByModel.bookmaker || !probsByModel.elo) return;
+    sampleSize += 1;
+    Object.entries(probsByModel).forEach(([key, probs]) => accumulateBenchmark(accumulators[key], probs, actual));
+  });
+  return {
+    sampleSize,
+    eloSnapshotDate: ELO_SNAPSHOT_DATE,
+    eloSource: ELO_SOURCE,
+    models: Object.fromEntries(Object.entries(accumulators).map(([key, acc]) => [key, finalizeBenchmark(acc)]))
+  };
+}
+
+// 单场三方概率(用于赛程内的并排展示，未完赛比赛也可用)
+function getMatchBenchmarkRow(match, teamA, teamB) {
+  return {
+    model: getModelProbabilities(teamA, teamB, match),
+    bookmaker: getBookmakerProbabilities(match),
+    elo: getEloProbabilities(teamA, teamB)
+  };
+}
+
 // ---- module init (was init()) ----
 appState.teams = normalizeTeams(appState.teams);
 applySavedLineupsToTeams();
@@ -3132,5 +3417,6 @@ export {
   getVisibleTeams, getSelectedTeam, findTeamByName, formatTeamName, getRecentMatchRows,
   getFullScheduleRows, matchMatchesScheduleFilters, getWorldCupMatches, getScheduleSourceLabel,
   formatGeneratedAt, formatVenueName, tryLiveLineup, saveLineupCache, readLineupCache, ensureTeamLineup, recomputeWithLineup,
-  getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, zhPlayerName, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey
+  getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, zhPlayerName, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey,
+  getBenchmarkComparison, getMatchBenchmarkRow, getModelProbabilities, getBookmakerProbabilities, getEloProbabilities
 };

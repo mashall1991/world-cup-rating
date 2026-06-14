@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted } from "vue";
 import { appState, loadLiveSchedule, loadOdds } from "./lib/engine.js";
 import LiveBanner from "./components/LiveBanner.vue";
+import BenchmarkPanel from "./components/BenchmarkPanel.vue";
 import TeamList from "./components/TeamList.vue";
 import TeamDetail from "./components/TeamDetail.vue";
 import ScheduleView from "./components/ScheduleView.vue";
@@ -59,6 +60,7 @@ onBeforeUnmount(() => clearInterval(timeThemeTimer));
 
     <main v-if="appState.view === 'events'" class="events-page" aria-label="赛事概览">
       <LiveBanner />
+      <BenchmarkPanel />
     </main>
 
     <template v-else-if="appState.view === 'ranking'">
