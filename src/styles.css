@@ -893,45 +893,45 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 
 .club-logo-badge {
   flex: none;
-  min-width: 44px;
-  height: 30px;
-  border-radius: 8px;
+  min-width: 52px;
+  height: 36px;
+  border-radius: 10px;
   display: inline-grid;
   place-items: center;
   background: var(--club-color, var(--panel-soft));
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.28);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
-  padding: 0 7px;
+  padding: 0 9px;
 }
 
 .club-logo-badge.mini {
-  min-width: 34px;
-  height: 26px;
-  border-radius: 7px;
-  font-size: 9px;
-  padding: 0 5px;
+  min-width: 42px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 10px;
+  padding: 0 7px;
 }
 
 .club-logo-badge.has-image {
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
+  width: 56px;
+  min-width: 56px;
+  height: 56px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.92);
   border-color: rgba(148, 163, 184, 0.34);
 }
 
 .club-logo-badge.mini.has-image {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  border-radius: 12px;
 }
 
 .club-logo-badge.has-image > span {
@@ -939,15 +939,15 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 }
 
 .club-logo-badge img {
-  width: 34px;
-  height: 34px;
+  width: 48px;
+  height: 48px;
   display: block;
   object-fit: contain;
 }
 
 .club-logo-badge.mini img {
-  width: 26px;
-  height: 26px;
+  width: 36px;
+  height: 36px;
 }
 
 .club-tags {
@@ -1589,6 +1589,26 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
   .brand-mark { width: 44px; height: 44px; font-size: 22px; border-radius: 13px; }
   .app-nav { width: 100%; }
   .app-nav button { flex: 1; min-width: 0; padding-left: 8px; padding-right: 8px; }
+  .club-logo-badge.has-image {
+    width: 64px;
+    min-width: 64px;
+    height: 64px;
+    border-radius: 16px;
+  }
+  .club-logo-badge img {
+    width: 56px;
+    height: 56px;
+  }
+  .club-logo-badge.mini.has-image {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    border-radius: 12px;
+  }
+  .club-logo-badge.mini img {
+    width: 38px;
+    height: 38px;
+  }
   .controls { gap: 8px; }
   .select-box { flex: 1; justify-content: space-between; }
   .live-banner { grid-auto-columns: minmax(228px, 82vw); }
