@@ -20,7 +20,7 @@ function formatProbs(probs) {
 function buildBenchLines(bench) {
   const lines = [
     { key: "model", name: "模型", probs: formatProbs(bench.model) },
-    { key: "bookmaker", name: "博彩", probs: formatProbs(bench.bookmaker) },
+    { key: "bookmaker", name: "市场", probs: formatProbs(bench.bookmaker) },
     { key: "elo", name: "Elo", probs: formatProbs(bench.elo) }
   ];
   return { lines, show: lines.some((line) => line.probs) };

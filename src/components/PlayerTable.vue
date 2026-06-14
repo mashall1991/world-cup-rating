@@ -12,6 +12,11 @@ function statusClass(item) {
 function clubProfile(item) {
   return getPlayerClubProfile(item);
 }
+
+function handleLogoError(event) {
+  event.currentTarget.closest(".club-logo-badge")?.classList.remove("has-image");
+  event.currentTarget.remove();
+}
 </script>
 
 <template>
@@ -32,9 +37,26 @@ function clubProfile(item) {
           <td>{{ shortTier(item) }}</td>
           <td>
             <div class="player-club-cell" :class="{ highlighted: clubProfile(item).highlighted }">
-              <span class="dual-name">
-                <strong>{{ [clubProfile(item).club, clubProfile(item).league].filter(Boolean).join(" · ") }}</strong>
-                <small>{{ clubProfile(item).clubEn }}</small>
+              <span class="club-title-line">
+                <span class="dual-name">
+                  <strong>{{ [clubProfile(item).club, clubProfile(item).league].filter(Boolean).join(" · ") }}</strong>
+                  <small>{{ clubProfile(item).clubEn }}</small>
+                </span>
+                <span
+                  v-if="clubProfile(item).badge"
+                  class="club-logo-badge"
+                  :class="{ 'has-image': clubProfile(item).badge.logo }"
+                  :style="{ '--club-color': clubProfile(item).badge.color }"
+                >
+                  <img
+                    v-if="clubProfile(item).badge.logo"
+                    :src="clubProfile(item).badge.logo"
+                    :alt="`${clubProfile(item).club} logo`"
+                    loading="lazy"
+                    @error="handleLogoError"
+                  >
+                  <span>{{ clubProfile(item).badge.text }}</span>
+                </span>
               </span>
               <span class="club-tags">
                 <span class="club-chip" :class="{ highlight: clubProfile(item).elite }">{{ clubProfile(item).level }}</span>
@@ -60,8 +82,27 @@ function clubProfile(item) {
           <span class="status-dot" :class="statusClass(item)">{{ item.availability }}</span>
         </div>
         <div class="player-card-club" :class="{ highlighted: clubProfile(item).highlighted }">
-          <span>{{ [clubProfile(item).club, clubProfile(item).league].filter(Boolean).join(" · ") }}</span>
-          <small v-if="clubProfile(item).clubEn">{{ clubProfile(item).clubEn }}</small>
+          <span class="club-title-line">
+            <span class="dual-name">
+              <strong>{{ [clubProfile(item).club, clubProfile(item).league].filter(Boolean).join(" · ") }}</strong>
+              <small v-if="clubProfile(item).clubEn">{{ clubProfile(item).clubEn }}</small>
+            </span>
+            <span
+              v-if="clubProfile(item).badge"
+              class="club-logo-badge"
+              :class="{ 'has-image': clubProfile(item).badge.logo }"
+              :style="{ '--club-color': clubProfile(item).badge.color }"
+            >
+              <img
+                v-if="clubProfile(item).badge.logo"
+                :src="clubProfile(item).badge.logo"
+                :alt="`${clubProfile(item).club} logo`"
+                loading="lazy"
+                @error="handleLogoError"
+              >
+              <span>{{ clubProfile(item).badge.text }}</span>
+            </span>
+          </span>
           <span class="club-tags">
             <span class="club-chip" :class="{ highlight: clubProfile(item).elite }">{{ clubProfile(item).level }}</span>
             <span class="club-chip" :class="{ highlight: clubProfile(item).starter }">{{ clubProfile(item).role }}</span>

@@ -541,6 +541,87 @@ const CLUB_ZH_LABELS = Object.freeze({
   "al sadd sc": "萨德"
 });
 
+const CLUB_BADGE_LABELS = Object.freeze({
+  "manchester city fc": { text: "MC", color: "#6cabdd" },
+  "manchester city": { text: "MC", color: "#6cabdd" },
+  "fc bayern munchen": { text: "FCB", color: "#dc052d" },
+  "bayern munich": { text: "FCB", color: "#dc052d" },
+  "paris saint germain": { text: "PSG", color: "#004170" },
+  "arsenal fc": { text: "ARS", color: "#ef0107" },
+  "arsenal": { text: "ARS", color: "#ef0107" },
+  "fc barcelona": { text: "BAR", color: "#a50044" },
+  "barcelona": { text: "BAR", color: "#a50044" },
+  "atletico de madrid": { text: "ATM", color: "#cb3524" },
+  "manchester united fc": { text: "MU", color: "#da291c" },
+  "manchester united": { text: "MU", color: "#da291c" },
+  "al hilal sc": { text: "HIL", color: "#0054a6" },
+  "borussia dortmund": { text: "BVB", color: "#facc15" },
+  "liverpool fc": { text: "LIV", color: "#c8102e" },
+  "liverpool": { text: "LIV", color: "#c8102e" },
+  "real madrid c f": { text: "RM", color: "#fbbf24" },
+  "real madrid": { text: "RM", color: "#fbbf24" },
+  "ac milan": { text: "MIL", color: "#fb090b" },
+  "tottenham hotspur fc": { text: "TOT", color: "#132257" },
+  "tottenham hotspur": { text: "TOT", color: "#132257" },
+  "sl benfica": { text: "BEN", color: "#e83030" },
+  "chelsea fc": { text: "CHE", color: "#034694" },
+  "chelsea": { text: "CHE", color: "#034694" },
+  "newcastle united fc": { text: "NEW", color: "#111827" },
+  "newcastle united": { text: "NEW", color: "#111827" },
+  "bayer 04 leverkusen": { text: "B04", color: "#e32221" },
+  "se palmeiras": { text: "PAL", color: "#006437" },
+  "fc internazionale milano": { text: "INT", color: "#0068a8" },
+  "inter": { text: "INT", color: "#0068a8" },
+  "sporting cp": { text: "SCP", color: "#00843d" },
+  "rb leipzig": { text: "RBL", color: "#dd0741" },
+  "juventus fc": { text: "JUV", color: "#111827" },
+  "ca river plate": { text: "RIV", color: "#e31e24" },
+  "as roma": { text: "ROM", color: "#8e1f2f" }
+});
+
+const CLUB_LOGO_URLS = Object.freeze({
+  "newcastle united fc": "https://media.api-sports.io/football/teams/34.png",
+  "newcastle united": "https://media.api-sports.io/football/teams/34.png",
+  "liverpool fc": "https://media.api-sports.io/football/teams/40.png",
+  "liverpool": "https://media.api-sports.io/football/teams/40.png",
+  "arsenal fc": "https://media.api-sports.io/football/teams/42.png",
+  "arsenal": "https://media.api-sports.io/football/teams/42.png",
+  "tottenham hotspur fc": "https://media.api-sports.io/football/teams/47.png",
+  "tottenham hotspur": "https://media.api-sports.io/football/teams/47.png",
+  "chelsea fc": "https://media.api-sports.io/football/teams/49.png",
+  "chelsea": "https://media.api-sports.io/football/teams/49.png",
+  "manchester city fc": "https://media.api-sports.io/football/teams/50.png",
+  "manchester city": "https://media.api-sports.io/football/teams/50.png",
+  "olympique marseille": "https://media.api-sports.io/football/teams/81.png",
+  "ogc nice": "https://media.api-sports.io/football/teams/84.png",
+  "paris saint germain": "https://media.api-sports.io/football/teams/85.png",
+  "as monaco": "https://media.api-sports.io/football/teams/91.png",
+  "fc bayern munchen": "https://media.api-sports.io/football/teams/157.png",
+  "bayern munich": "https://media.api-sports.io/football/teams/157.png",
+  "borussia dortmund": "https://media.api-sports.io/football/teams/165.png",
+  "bayer 04 leverkusen": "https://media.api-sports.io/football/teams/168.png",
+  "eintracht frankfurt": "https://media.api-sports.io/football/teams/169.png",
+  "psv eindhoven": "https://media.api-sports.io/football/teams/197.png",
+  "feyenoord rotterdam": "https://media.api-sports.io/football/teams/209.png",
+  "sl benfica": "https://media.api-sports.io/football/teams/211.png",
+  "sporting cp": "https://media.api-sports.io/football/teams/228.png",
+  "celtic fc": "https://media.api-sports.io/football/teams/247.png",
+  "rangers fc": "https://media.api-sports.io/football/teams/257.png",
+  "juventus fc": "https://media.api-sports.io/football/teams/496.png",
+  "atalanta bergamo": "https://media.api-sports.io/football/teams/499.png",
+  "fc internazionale milano": "https://media.api-sports.io/football/teams/505.png",
+  "inter": "https://media.api-sports.io/football/teams/505.png",
+  "fc barcelona": "https://media.api-sports.io/football/teams/529.png",
+  "barcelona": "https://media.api-sports.io/football/teams/529.png",
+  "atletico de madrid": "https://media.api-sports.io/football/teams/530.png",
+  "villarreal cf": "https://media.api-sports.io/football/teams/533.png",
+  "real madrid c f": "https://media.api-sports.io/football/teams/541.png",
+  "real madrid": "https://media.api-sports.io/football/teams/541.png",
+  "sk slavia praha": "https://media.api-sports.io/football/teams/560.png",
+  "fenerbahce sk": "https://media.api-sports.io/football/teams/611.png",
+  "galatasaray sk": "https://media.api-sports.io/football/teams/645.png"
+});
+
 const LEAGUE_CODE_LABELS = Object.freeze({
   ENG: "英超",
   ESP: "西甲",
@@ -3040,10 +3121,16 @@ function getPlayerClubProfile(player, team = null) {
   const level = getClubLevelLabel(enriched);
   const role = getClubRoleLabel(enriched);
   const league = getLeagueLabel(enriched, rawClub, rawClubEn);
+  const clubKey = getClubNameKey(rawClub);
+  const clubEnKey = getClubNameKey(rawClubEn);
+  const badgeConfig = CLUB_BADGE_LABELS[clubKey] ?? CLUB_BADGE_LABELS[clubEnKey] ?? null;
+  const logo = CLUB_LOGO_URLS[clubKey] ?? CLUB_LOGO_URLS[clubEnKey] ?? null;
+  const badge = badgeConfig ? { ...badgeConfig, logo } : null;
   return {
     club,
     clubEn,
     league,
+    badge,
     level,
     role,
     elite: level === "豪门",
@@ -3511,7 +3598,7 @@ function getLineupAdjustedPair(match, teamA, teamB) {
 }
 
 // ============================================================
-// 基准对比：把"你的模型 / 博彩赔率 / Elo"都转成归一化的主-平-客三路概率，
+// 基准对比：把"你的模型 / 市场赔率 / Elo"都转成归一化的主-平-客三路概率，
 // 再用命中率、Brier 分、对数损失三个指标做回测对比。
 // Brier 与对数损失越低越好；命中率越高越好。
 // ============================================================
@@ -3553,7 +3640,7 @@ function getModelProbabilities(teamA, teamB, match = null) {
   return normalizeProbs(probs);
 }
 
-// 博彩：赔率取倒数得隐含概率，再除以总和去抽水(de-vig)
+// 市场：赔率取倒数得隐含概率，再除以总和去抽水(de-vig)
 function getBookmakerProbabilities(match) {
   const odds = getMatchOdds(match);
   if (!odds) return null;
@@ -3631,7 +3718,7 @@ function getBenchmarkComparison() {
   const merged = mergeFinishedMatches(liveFinished, readFinishedHomeResults());
   const accumulators = {
     model: createBenchmarkAccumulator("你的模型"),
-    bookmaker: createBenchmarkAccumulator("博彩赔率"),
+    bookmaker: createBenchmarkAccumulator("市场赔率"),
     elo: createBenchmarkAccumulator("Elo")
   };
   let sampleSize = 0;

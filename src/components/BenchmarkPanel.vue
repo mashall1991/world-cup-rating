@@ -44,7 +44,7 @@ const rows = computed(() => {
   <section class="benchmark-panel" aria-label="模型对比基准">
     <div class="benchmark-head">
       <h3>模型对比 · 回测战绩</h3>
-      <span class="benchmark-sub">你的模型 vs 博彩赔率 vs Elo</span>
+      <span class="benchmark-sub">你的模型 vs 市场赔率 vs Elo</span>
     </div>
 
     <p v-if="!report.sampleSize" class="benchmark-empty">

@@ -43,6 +43,11 @@ function clubProfile(item, team) {
   return getPlayerClubProfile(item, team);
 }
 
+function handleLogoError(event) {
+  event.currentTarget.closest(".club-logo-badge")?.classList.remove("has-image");
+  event.currentTarget.remove();
+}
+
 async function resolveColumn(col, team, token) {
   const cached = readLineupCache(team.id);
   if (cached?.lineup?.length) {
@@ -177,7 +182,22 @@ watch(
                     <span class="cl-main">
                       <span class="cl-name">{{ item.name }}</span>
                       <span class="cl-club-line">
-                        {{ [clubProfile(item, col.team).club, clubProfile(item, col.team).league].filter(Boolean).join(" · ") }}<template v-if="clubProfile(item, col.team).clubEn"> · {{ clubProfile(item, col.team).clubEn }}</template>
+                        <span class="cl-club-text">{{ [clubProfile(item, col.team).club, clubProfile(item, col.team).league].filter(Boolean).join(" · ") }}<template v-if="clubProfile(item, col.team).clubEn"> · {{ clubProfile(item, col.team).clubEn }}</template></span>
+                        <span
+                          v-if="clubProfile(item, col.team).badge"
+                          class="club-logo-badge mini"
+                          :class="{ 'has-image': clubProfile(item, col.team).badge.logo }"
+                          :style="{ '--club-color': clubProfile(item, col.team).badge.color }"
+                        >
+                          <img
+                            v-if="clubProfile(item, col.team).badge.logo"
+                            :src="clubProfile(item, col.team).badge.logo"
+                            :alt="`${clubProfile(item, col.team).club} logo`"
+                            loading="lazy"
+                            @error="handleLogoError"
+                          >
+                          <span>{{ clubProfile(item, col.team).badge.text }}</span>
+                        </span>
                       </span>
                       <span class="club-tags compare-tags">
                         <span class="club-chip" :class="{ highlight: clubProfile(item, col.team).elite }">{{ clubProfile(item, col.team).level }}</span>
