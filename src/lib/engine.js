@@ -2793,6 +2793,7 @@ function normalizeTeamKey(value) {
     "cote d ivoire": "ivory coast",
     "czechia": "czech republic",
     "cabo verde": "cape verde",
+    "cape verde islands": "cape verde",
     "bosnia herzegovina": "bosnia and herzegovina",
     "congo dr": "dr congo",
     "democratic republic of congo": "dr congo",
