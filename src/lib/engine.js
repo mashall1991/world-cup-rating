@@ -823,8 +823,9 @@ const KNOCKOUT_DRAW_CONFIDENCE_MAX = 0.33;
 // 平局概率随两队评分差(0~100 尺度)高斯衰减的尺度，约 14 分=明显热门。
 const DRAW_CONFIDENCE_SIGMA = 14;
 const WIN_CONFIDENCE_MIN = 0.5;
-const WIN_CONFIDENCE_MAX = 0.8;
-const WIN_CONFIDENCE_SCALE = 16;
+// 上限 0.95：悬殊对阵让热门方独占胜负份额(弱队不再被强行留约 20%)，贴近赔率隐含概率。
+const WIN_CONFIDENCE_MAX = 0.95;
+const WIN_CONFIDENCE_SCALE = 13;
 
 const publicData = loadPublicData();
 const clubPlayerStats = loadClubPlayerStats();
