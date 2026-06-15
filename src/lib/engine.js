@@ -414,12 +414,39 @@ const VENUE_ZH_LABELS = Object.freeze({
 });
 
 const scoreComponentConfig = [
-  ["squadQuality", "阵容质量", 42, "#1f7a4d"],
-  ["recentMatchRating", "近期比赛强度", 33, "#315f9f"],
+  ["squadQuality", "阵容质量", 38, "#1f7a4d"],
+  ["recentMatchRating", "近期比赛强度", 31, "#315f9f"],
   ["positionalBalance", "位置平衡", 10, "#bf7b1f"],
   ["squadDepth", "阵容深度", 8, "#277a86"],
-  ["cohesionContinuity", "协同连续性", 4, "#7b2f35"],
+  ["cohesionContinuity", "协同连续性", 10, "#7b2f35"],
   ["ageLoad", "年龄/赛程耐久", 3, "#b64a3a"]
+];
+
+const legacyDefaultCoefficientConfigs = [
+  {
+    squadQuality: 42,
+    recentMatchRating: 33,
+    positionalBalance: 10,
+    squadDepth: 8,
+    cohesionContinuity: 4,
+    ageLoad: 3
+  },
+  {
+    squadQuality: 40,
+    recentMatchRating: 33,
+    positionalBalance: 10,
+    squadDepth: 8,
+    cohesionContinuity: 6,
+    ageLoad: 3
+  },
+  {
+    squadQuality: 38,
+    recentMatchRating: 33,
+    positionalBalance: 10,
+    squadDepth: 8,
+    cohesionContinuity: 8,
+    ageLoad: 3
+  }
 ];
 
 // 两队对比弹窗按四个维度展开（与详情页分区标题一致）
@@ -892,6 +919,9 @@ function loadCoefficientConfig() {
   try {
     const stored = JSON.parse(localStorage.getItem(COEFFICIENT_STORAGE_KEY));
     if (!stored || typeof stored !== "object") return fallback;
+    if (legacyDefaultCoefficientConfigs.some((config) => isSameCoefficientConfig(stored, config))) {
+      return fallback;
+    }
     return Object.fromEntries(
       scoreComponentConfig.map(([key]) => {
         const value = Number(stored[key]);
@@ -901,6 +931,10 @@ function loadCoefficientConfig() {
   } catch {
     return fallback;
   }
+}
+
+function isSameCoefficientConfig(config, expected) {
+  return scoreComponentConfig.every(([key]) => Math.abs(Number(config[key]) - Number(expected[key])) < 0.001);
 }
 
 function saveCoefficientConfig(coefficients) {
@@ -2502,7 +2536,9 @@ function applyClubDataAdjustments(team) {
   const clubCohesionAdjustment = calculateClubDataCohesionAdjustment(team);
   if (!clubStatsCoverage && !clubCohesionAdjustment) return team;
 
-  const adjustedCohesion = clamp(Number(team.dimensions?.cohesion ?? 0) + clubCohesionAdjustment);
+  const baseCohesion = Number(team.dimensions?.cohesion ?? 0);
+  const manualMaxCohesion = baseCohesion >= 100;
+  const adjustedCohesion = manualMaxCohesion ? 100 : clamp(baseCohesion + clubCohesionAdjustment);
   return {
     ...team,
     dimensions: {
@@ -2511,8 +2547,10 @@ function applyClubDataAdjustments(team) {
     },
     cohesionBreakdown: {
       ...team.cohesionBreakdown,
-      club: clamp(Number(team.cohesionBreakdown?.club ?? 0) + clubCohesionAdjustment * 2.5),
-      clubDataAdjustment: clubCohesionAdjustment,
+      club: manualMaxCohesion
+        ? Number(team.cohesionBreakdown?.club ?? 100)
+        : clamp(Number(team.cohesionBreakdown?.club ?? 0) + clubCohesionAdjustment * 2.5),
+      clubDataAdjustment: manualMaxCohesion ? 0 : clubCohesionAdjustment,
       clubStatsCoverage
     },
     performanceBreakdown: {
@@ -2533,14 +2571,15 @@ function calculatePlayerParticipationStrength(team) {
     const environment = Number(player.environmentScore ?? team.dimensions?.environment ?? 0);
     const league = Number(player.leagueStrength ?? environment);
     const club = Number(player.clubCompetitiveness ?? environment);
+    const clubSignal = getClubCompetitivenessSignal(player, club, league);
     const stability = Number(player.roleStability ?? environment);
     const clubPerformanceAdjustment = getClubPerformanceAdjustment(player);
     const participationScore = clamp(
       environment * 0.2 +
-        league * 0.3 +
-        club * 0.25 +
-        stability * 0.25 +
-        getClubRoleAdjustment(club, stability) +
+        league * 0.32 +
+        clubSignal * 0.18 +
+        stability * 0.3 +
+        getClubRoleAdjustment(clubSignal, stability) +
         clubPerformanceAdjustment * 0.9
     );
     total += participationScore * roleWeight;
@@ -2566,14 +2605,11 @@ function getClubRoleAdjustment(clubCompetitiveness, roleStability) {
   const club = Number(clubCompetitiveness);
   const role = Number(roleStability);
   let adjustment =
-    club >= 92 ? 3 :
-    club >= 86 ? 1.5 :
     club >= 78 ? 0 :
     club >= 68 ? -2 :
     -5;
 
   if (club >= 90 && role < 76) adjustment -= 4;
-  if (club < 78 && role >= 86) adjustment += 1.5;
   return adjustment;
 }
 
@@ -2961,12 +2997,11 @@ function calculateSquadQuality(team) {
 function calculateStarCoreAdjustment(starters) {
   const coreScores = starters
     .map((player) => {
-      if (!isEliteClubPlayer(player)) return 0;
       const role = Number(player.roleStability ?? player.environmentScore ?? 70);
-      if (role < 78) return 0;
+      if (role < 82) return 0;
       const starScore = getPlayerQualityScore(player, 0);
-      const starterBonus = role >= 90 ? 3 : role >= 86 ? 1.8 : role >= 82 ? 0.8 : 0;
-      const peakBonus = starScore >= 94 ? 2.4 : starScore >= 91 ? 1.2 : 0;
+      const starterBonus = role >= 90 ? 1.2 : role >= 86 ? 0.7 : 0.3;
+      const peakBonus = starScore >= 94 ? 1.2 : starScore >= 91 ? 0.6 : 0;
       return clamp(starScore + starterBonus + peakBonus);
     })
     .filter((score) => score > 0)
@@ -2976,16 +3011,15 @@ function calculateStarCoreAdjustment(starters) {
   if (!coreScores.length) return 0;
   const [first = 0, second = first, third = second] = coreScores;
   const starIndex = first * 0.52 + second * 0.3 + third * 0.18;
-  const elitePeakBonus = Math.max(0, first - 92) * 0.6 + Math.max(0, second - 90) * 0.35;
-  return Math.min(10.5, Math.max(0, starIndex - 84) * 0.75 + elitePeakBonus);
+  const peakBonus = Math.max(0, first - 93) * 0.25 + Math.max(0, second - 91) * 0.15;
+  return Math.min(6, Math.max(0, starIndex - 86) * 0.42 + peakBonus);
 }
 
 function calculateEliteStarterAdjustment(starters) {
   if (!starters.length) return 0;
   const roleValues = starters.map(getEliteRoleValue);
-  const eliteDensity = roleValues.reduce((sum, value) => sum + Math.max(0, value), 0) / starters.length;
   const benchPenalty = roleValues.filter((value) => value < 0).length * 0.8;
-  return (eliteDensity - 0.22) * 8 - Math.max(0, 0.14 - eliteDensity) * 4 - benchPenalty;
+  return -benchPenalty;
 }
 
 function getEliteRoleValue(player) {
@@ -3211,12 +3245,24 @@ function getPlayerQualityScore(player, fallback) {
   const base = Number(player.environmentScore ?? fallback ?? 0);
   const league = Number(player.leagueStrength ?? base);
   const club = Number(player.clubCompetitiveness ?? base);
+  const clubSignal = getClubCompetitivenessSignal(player, club, league);
   const role = Number(player.roleStability ?? base);
   const appearance = Number(player.appearanceWeight ?? 0.2);
-  const clubRole = getClubRoleQualityAdjustment(club, role, appearance, isEliteClubPlayer(player));
+  const clubRole = getClubRoleQualityAdjustment(clubSignal, role, appearance, isEliteClubPlayer(player));
   const ageAdjustment = getAgeQualityAdjustment(player);
   const clubPerformanceAdjustment = getClubPerformanceAdjustment(player);
-  return clamp(base * 0.42 + league * 0.18 + club * 0.2 + role * 0.2 + clubRole + ageAdjustment + clubPerformanceAdjustment);
+  return clamp(base * 0.42 + league * 0.2 + clubSignal * 0.16 + role * 0.22 + clubRole + ageAdjustment + clubPerformanceAdjustment);
+}
+
+function getClubCompetitivenessSignal(player, clubCompetitiveness, leagueStrength) {
+  const club = Number(clubCompetitiveness);
+  if (!Number.isFinite(club)) return 0;
+  if (!isEliteClubPlayer(player)) return club;
+
+  const league = Number(leagueStrength);
+  if (!Number.isFinite(league)) return club;
+  const elitePremium = Math.max(0, club - league);
+  return club - elitePremium * 0.55;
 }
 
 function getClubDataWeightMultiplier(player) {
@@ -3300,20 +3346,13 @@ function per90(value, minutes) {
 
 function getClubRoleQualityAdjustment(club, role, appearance, eliteClub) {
   let adjustment =
-    club >= 92 ? 2.4 :
-    club >= 86 ? 1.1 :
     club >= 78 ? 0 :
     club >= 68 ? -1.6 :
     -4;
 
-  if (eliteClub && role >= 90 && appearance >= 0.9) adjustment += 3.2;
-  else if (eliteClub && role >= 84 && appearance >= 0.55) adjustment += 1.8;
-  else if (eliteClub && role >= 78) adjustment += 0.5;
-  else if (eliteClub && role < 76) adjustment -= 4;
-  else if (!eliteClub && role >= 88 && appearance >= 0.9 && club >= 78) adjustment += 1.2;
+  if (eliteClub && role < 76) adjustment -= 4;
 
   if (club >= 88 && role < 70) adjustment -= 2.5;
-  if (club < 76 && role >= 86) adjustment += 0.8;
   return adjustment;
 }
 

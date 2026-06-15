@@ -16819,7 +16819,7 @@ window.WORLD_CUP_SQUAD_MODEL = {
       },
       "dimensions": {
         "environment": 82.2,
-        "cohesion": 54.3,
+        "cohesion": 100.0,
         "age": 95.4,
         "performance": 68.3
       },
@@ -16829,9 +16829,9 @@ window.WORLD_CUP_SQUAD_MODEL = {
         "roleStability": 81.4
       },
       "cohesionBreakdown": {
-        "nationalTeam": 69.6,
-        "club": 3.8,
-        "historical": 27.8
+        "nationalTeam": 100.0,
+        "club": 100.0,
+        "historical": 100.0
       },
       "performanceBreakdown": {
         "officialResults": 73.0,
