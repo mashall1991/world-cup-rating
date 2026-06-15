@@ -2053,7 +2053,7 @@ function recomputeWithLineup(team, lineup) {
     ...team.dimensions,
     environment: weightedAverageBy(adjustedPlayers, "environmentScore", team.dimensions.environment),
     age: weightedAverageBy(adjustedPlayers, "ageScore", team.dimensions.age),
-    cohesion: computeCohesionScore(adjustedPlayers, team.dimensions.cohesion)
+    cohesion: hasManualMaxCohesion(team) ? 100 : computeCohesionScore(adjustedPlayers, team.dimensions.cohesion)
   };
   const environmentBreakdown = {
     leagueStrength: weightedAverageBy(adjustedPlayers, "leagueStrength", team.environmentBreakdown.leagueStrength),
@@ -2537,7 +2537,7 @@ function applyClubDataAdjustments(team) {
   if (!clubStatsCoverage && !clubCohesionAdjustment) return team;
 
   const baseCohesion = Number(team.dimensions?.cohesion ?? 0);
-  const manualMaxCohesion = baseCohesion >= 100;
+  const manualMaxCohesion = hasManualMaxCohesion(team);
   const adjustedCohesion = manualMaxCohesion ? 100 : clamp(baseCohesion + clubCohesionAdjustment);
   return {
     ...team,
@@ -2558,6 +2558,10 @@ function applyClubDataAdjustments(team) {
       clubStatsCoverage
     }
   };
+}
+
+function hasManualMaxCohesion(team) {
+  return Number(team?.dimensions?.cohesion ?? 0) >= 100;
 }
 
 function calculatePlayerParticipationStrength(team) {
