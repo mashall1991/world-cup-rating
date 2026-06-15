@@ -764,12 +764,18 @@ const LEAGUE_STRENGTH_FACTOR = {
   "AFC Champions League Two": 0.6,
   "CONCACAF Champions League": 0.62
 };
-// 未列出的联赛（多为弱联赛或杯赛长尾，每个仅个位数球员）按中性折扣兜底，与回测一致。
-const LEAGUE_STRENGTH_DEFAULT = 0.75;
+// 未列出的联赛（多为弱联赛或杯赛长尾，每个仅个位数球员）不视作可加分样本。
+const LEAGUE_STRENGTH_DEFAULT = 0.55;
+const POSITIVE_CLUB_PERFORMANCE_MIN_FACTOR = 0.72;
 
 function leagueStrengthFactor(leagueName) {
   if (!leagueName) return LEAGUE_STRENGTH_DEFAULT;
   return LEAGUE_STRENGTH_FACTOR[leagueName] ?? LEAGUE_STRENGTH_DEFAULT;
+}
+
+function allowsPositiveClubPerformance(leagueName) {
+  return Object.hasOwn(LEAGUE_STRENGTH_FACTOR, leagueName) &&
+    leagueStrengthFactor(leagueName) >= POSITIVE_CLUB_PERFORMANCE_MIN_FACTOR;
 }
 
 function adjustCrossLeagueRating(rating, leagueName) {
@@ -2572,8 +2578,8 @@ function applyPublicPerformance(team) {
     : Number(team.dimensions?.performance ?? playerParticipation);
   const weakOpponentPenalty = Number(performance?.breakdown?.weakOpponentPenalty ?? 0);
   const adjustedTeamResults = clamp(calibratedTeamResults - weakOpponentPenalty);
-  // 实际近期战绩（已含跨洲 Elo 锚的 SOS）占比从 0.3 提到 0.4，让“打了谁、赢没赢”更有发言权。
-  const blendedBeforeWeakPenalty = clamp(playerParticipation * 0.6 + calibratedTeamResults * 0.4);
+  // 世界杯是国家队比赛：近期强度以国家队正式战绩/SOS 为主，俱乐部参与强度作为辅助状态信号。
+  const blendedBeforeWeakPenalty = clamp(playerParticipation * 0.45 + calibratedTeamResults * 0.55);
   const blendedPerformance = clamp(blendedBeforeWeakPenalty - weakOpponentPenalty);
 
   return {
@@ -3435,7 +3441,19 @@ function getClubPerformanceAdjustment(player) {
   }
 
   if (redCards >= 2) adjustment -= 0.8;
-  return Math.max(-3.5, Math.min(5.5, adjustment));
+  if (adjustment > 0 && !allowsPositiveClubPerformance(stats?.latestSeason?.leagueName)) return 0;
+  return Math.max(-3.5, Math.min(getClubPerformanceAdjustmentCap(player), adjustment));
+}
+
+function getClubPerformanceAdjustmentCap(player) {
+  const club = Number(player.clubCompetitiveness ?? player.environmentScore ?? 75);
+  const role = Number(player.roleStability ?? player.environmentScore ?? 75);
+  if (isEliteClubPlayer(player) && role >= 84) return 5.5;
+  if (club >= 90 && role >= 86) return 4.2;
+  if (club >= 86) return 3;
+  if (club >= 82) return 2.2;
+  if (club >= 76) return 1.4;
+  return 0.6;
 }
 
 function metricNumber(value) {
