@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import {
   LINEUP_API, dimensionConfig, ensureTeamLineup, readLineupCache,
-  recomputeWithLineup, ensureMatchLineups, getTier, formatScore, clamp,
+  recomputeLineupPair, ensureMatchLineups, getTier, formatScore, clamp,
   getPlayerClubProfile
 } from "../lib/engine.js";
 import { ui, closeCompare } from "../lib/ui.js";
@@ -91,8 +91,7 @@ watch(
       const label = saved.phase === "post" ? "实际首发 · 已保存" : "赛前名单 · 已保存";
       colA.value = { team: a, lineup: saved.lineups.home, meta: label };
       colB.value = { team: b, lineup: saved.lineups.away, meta: label };
-      const adjA = recomputeWithLineup(a, saved.lineups.home);
-      const adjB = recomputeWithLineup(b, saved.lineups.away);
+      const { teamA: adjA, teamB: adjB } = recomputeLineupPair(a, saved.lineups.home, b, saved.lineups.away);
       if (adjA || adjB) {
         adjustedA.value = adjA;
         adjustedB.value = adjB;
@@ -111,8 +110,7 @@ watch(
     ]);
     if (token !== ui.compare.token || !ui.compare.open) return;
 
-    const adjA = liveA ? recomputeWithLineup(a, liveA) : null;
-    const adjB = liveB ? recomputeWithLineup(b, liveB) : null;
+    const { teamA: adjA, teamB: adjB } = recomputeLineupPair(a, liveA, b, liveB);
     if (!adjA && !adjB) return;
     adjustedA.value = adjA;
     adjustedB.value = adjB;

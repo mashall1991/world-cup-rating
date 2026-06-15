@@ -2025,6 +2025,10 @@ async function ensureTeamLineup(team) {
 // environment / age / cohesion 三个维度（performance 是球队层面战绩，与首发无关，保持不变）。
 // 保护逻辑：实时名单异常或与模型库匹配过少时返回 null，调用方据此回退到预测评分。
 function recomputeWithLineup(team, lineup) {
+  return scoreLineupAdjustedDrafts([buildLineupAdjustedDraft(team, lineup)])[0] ?? null;
+}
+
+function buildLineupAdjustedDraft(team, lineup) {
   const players = Array.isArray(team.players) ? team.players : [];
   if (!players.length) return null;
 
@@ -2061,8 +2065,35 @@ function recomputeWithLineup(team, lineup) {
     roleStability: weightedAverageBy(adjustedPlayers, "roleStability", team.environmentBreakdown.roleStability)
   };
 
-  const adjusted = withScores({ ...team, players: adjustedPlayers, dimensions, environmentBreakdown });
-  return { ...adjusted, rank: team.rank, lineupMatched: matched };
+  return { ...team, players: adjustedPlayers, dimensions, environmentBreakdown, lineupMatched: matched };
+}
+
+function scoreLineupAdjustedDrafts(drafts) {
+  const validDrafts = drafts.filter(Boolean);
+  if (!validDrafts.length) return [];
+
+  const previousBounds = squadQualityBounds ? { ...squadQualityBounds } : null;
+  try {
+    const draftById = new Map(validDrafts.map((draft) => [draft.id, draft]));
+    const scoringPool = appState.teams.map((team) => draftById.get(team.id) ?? team);
+    updateSquadQualityBounds(scoringPool);
+    return validDrafts.map((draft) => {
+      const adjusted = withScores(draft);
+      return { ...adjusted, rank: draft.rank, lineupMatched: draft.lineupMatched };
+    });
+  } finally {
+    squadQualityBounds = previousBounds;
+  }
+}
+
+function recomputeLineupPair(teamA, lineupA, teamB, lineupB) {
+  const draftA = buildLineupAdjustedDraft(teamA, lineupA);
+  const draftB = buildLineupAdjustedDraft(teamB, lineupB);
+  const scored = scoreLineupAdjustedDrafts([draftA, draftB]);
+  return {
+    teamA: draftA ? scored.shift() ?? null : null,
+    teamB: draftB ? scored.shift() ?? null : null
+  };
 }
 
 // 按出场权重加权球员某字段（移植自建模脚本 weighted_average）。
@@ -2472,18 +2503,26 @@ function buildPublicPerformanceIndex(recentResults) {
     const strongOpponent = strongMatches
       ? clamp((strongPts / strongDen) * 100)
       : clamp(officialResults * 0.6 + 50 * 0.4);
+    const weakOpponentPenalty = calculateMissedWeakWinPenalty(teamName, records, resultScores);
 
     const aggregate = recentResults.team_aggregates?.[teamName] ?? {};
+    const publicScore = clamp(
+      officialResults * 0.5 +
+        officialGoalProfile * 0.33 +
+        strongOpponent * 0.17 -
+        weakOpponentPenalty
+    );
     teams.set(normalizeTeamKey(teamName), {
       sourceName: teamName,
-      score: clamp(officialResults * 0.5 + officialGoalProfile * 0.33 + strongOpponent * 0.17),
+      score: publicScore,
       matches: Number(aggregate.matches ?? item.n),
       officialMatches: Number(aggregate.official_matches ?? item.n),
       friendlyMatches: Number(aggregate.friendly_matches ?? 0),
       breakdown: {
         officialResults,
         officialGoalProfile,
-        strongOpponent
+        strongOpponent,
+        weakOpponentPenalty
       }
     });
   });
@@ -2501,6 +2540,29 @@ function buildPublicPerformanceIndex(recentResults) {
   };
 }
 
+function calculateMissedWeakWinPenalty(teamName, records, resultScores) {
+  const ownStrength = Number(resultScores.get(teamName) ?? 50);
+  if (ownStrength < 58) return 0;
+
+  const recs = records.get(teamName) ?? [];
+  let penalty = 0;
+  let totalWeight = 0;
+  recs.forEach(([opponent, points, weight]) => {
+    totalWeight += weight;
+    if (points >= 3) return;
+
+    const opponentStrength = Number(resultScores.get(opponent) ?? 50);
+    const strengthGap = ownStrength - opponentStrength;
+    if (strengthGap < 14) return;
+
+    const resultSeverity = points === 1 ? 1 : 1.35;
+    const gapSeverity = Math.min(1.4, 1 + (strengthGap - 14) / 35);
+    penalty += 10 * resultSeverity * gapSeverity * weight;
+  });
+
+  return totalWeight ? Math.min(12, penalty / Math.max(totalWeight * 0.35, 1)) : 0;
+}
+
 function applyPublicPerformance(team) {
   const index = appState.publicPerformance;
   const playerParticipation = calculatePlayerParticipationStrength(team);
@@ -2508,8 +2570,11 @@ function applyPublicPerformance(team) {
   const calibratedTeamResults = performance
     ? calibratePublicPerformance(team, performance.score)
     : Number(team.dimensions?.performance ?? playerParticipation);
+  const weakOpponentPenalty = Number(performance?.breakdown?.weakOpponentPenalty ?? 0);
+  const adjustedTeamResults = clamp(calibratedTeamResults - weakOpponentPenalty);
   // 实际近期战绩（已含跨洲 Elo 锚的 SOS）占比从 0.3 提到 0.4，让“打了谁、赢没赢”更有发言权。
-  const blendedPerformance = clamp(playerParticipation * 0.6 + calibratedTeamResults * 0.4);
+  const blendedBeforeWeakPenalty = clamp(playerParticipation * 0.6 + calibratedTeamResults * 0.4);
+  const blendedPerformance = clamp(blendedBeforeWeakPenalty - weakOpponentPenalty);
 
   return {
     ...team,
@@ -2520,8 +2585,10 @@ function applyPublicPerformance(team) {
     performanceBreakdown: {
       ...(performance?.breakdown ?? {}),
       playerParticipation,
-      teamResults: calibratedTeamResults,
+      teamResults: adjustedTeamResults,
+      teamResultsBeforeWeakPenalty: calibratedTeamResults,
       rawPublicScore: performance?.score ?? null,
+      blendedBeforeWeakPenalty,
       blendedScore: blendedPerformance
     },
     publicPerformance: performance ?? null
@@ -2956,6 +3023,7 @@ function calculateRawSquadQuality(team) {
   const eliteStarterAdjustment = calculateEliteStarterAdjustment(starters);
   const starCoreAdjustment = calculateStarCoreAdjustment(starters);
   const lineIntegrityAdjustment = calculateLineIntegrityAdjustment(starters, fallback);
+  const lowLevelAdjustment = calculateLowLevelSquadAdjustment(starters, rotation);
   const lowIntensityOldStarters = starters.filter((player) => {
     const age = Number(player.age ?? 0);
     const league = String(player.leagueCode ?? "");
@@ -2969,10 +3037,41 @@ function calculateRawSquadQuality(team) {
       eliteStarterAdjustment -
       weakShare * 3.5 +
       starCoreAdjustment -
+      lowLevelAdjustment -
       lowIntensityOldStarters * 1.4 +
       lineIntegrityAdjustment;
 
   return rawQuality + calculateClubDataSquadAdjustment(starters, rotation);
+}
+
+function calculateLowLevelSquadAdjustment(starters, rotation) {
+  const starterPenalty = starters.reduce((sum, player) => sum + getLowLevelPlayerPenalty(player, 1), 0);
+  const rotationPenalty = rotation.reduce((sum, player) => sum + getLowLevelPlayerPenalty(player, 0.35), 0);
+  return Math.min(8, starterPenalty + rotationPenalty);
+}
+
+function getLowLevelPlayerPenalty(player, roleWeight) {
+  const league = Number(player.leagueStrength ?? player.environmentScore ?? 75);
+  const club = Number(player.clubCompetitiveness ?? player.environmentScore ?? 75);
+  const role = Number(player.roleStability ?? player.environmentScore ?? 75);
+  const quality = getPlayerQualityScore(player, 75);
+
+  let penalty = 0;
+  if (league < 62) penalty += 2.8;
+  else if (league < 68) penalty += 1.9;
+  else if (league < 74) penalty += 1.1;
+
+  if (club < 60) penalty += 2.2;
+  else if (club < 66) penalty += 1.5;
+  else if (club < 72) penalty += 0.8;
+
+  if (role < 66) penalty += 1.1;
+  else if (role < 72) penalty += 0.6;
+
+  if (quality < 70) penalty += 1.6;
+  else if (quality < 74) penalty += 0.9;
+
+  return penalty * roleWeight;
 }
 
 // 全场 raw 分的上下界，由 normalizeTeams 整批球队定出，供 Min-Max 归一化复用。
@@ -3635,8 +3734,7 @@ function getLineupAdjustedPair(match, teamA, teamB) {
   if (!teamA || !teamB) return { teamA, teamB, adjusted: false };
   const entry = getSavedMatchLineups(match);
   if (!entry?.lineups) return { teamA, teamB, adjusted: false };
-  const adjA = recomputeWithLineup(teamA, entry.lineups.home);
-  const adjB = recomputeWithLineup(teamB, entry.lineups.away);
+  const { teamA: adjA, teamB: adjB } = recomputeLineupPair(teamA, entry.lineups.home, teamB, entry.lineups.away);
   return { teamA: adjA ?? teamA, teamB: adjB ?? teamB, adjusted: Boolean(adjA || adjB) };
 }
 
@@ -3812,7 +3910,7 @@ export {
   getBannerMatchStatus, isMatchFinished, normalizeTeams, refreshTeamScores, rankTeams,
   getVisibleTeams, getSelectedTeam, findTeamByName, formatTeamName, getRecentMatchRows,
   getFullScheduleRows, matchMatchesScheduleFilters, getWorldCupMatches, getScheduleSourceLabel,
-  formatGeneratedAt, formatVenueName, tryLiveLineup, saveLineupCache, readLineupCache, ensureTeamLineup, recomputeWithLineup,
+  formatGeneratedAt, formatVenueName, tryLiveLineup, saveLineupCache, readLineupCache, ensureTeamLineup, recomputeWithLineup, recomputeLineupPair,
   getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, zhPlayerName, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey,
   getBenchmarkComparison, getMatchBenchmarkRow, getModelProbabilities, getBookmakerProbabilities, getEloProbabilities, getPlayerClubProfile
 };

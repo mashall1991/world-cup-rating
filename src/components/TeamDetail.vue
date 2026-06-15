@@ -42,6 +42,7 @@ const performanceRows = computed(() => [
   ["正式比赛结果", team.value.performanceBreakdown.officialResults],
   ["正式比赛攻防", team.value.performanceBreakdown.officialGoalProfile],
   ["强队交手表现", team.value.performanceBreakdown.strongOpponent],
+  ["弱队未胜扣分", signed(-(team.value.performanceBreakdown.weakOpponentPenalty ?? 0))],
   ["球员俱乐部强度", team.value.performanceBreakdown.playerParticipation],
   ["API俱乐部覆盖", formatPercent(team.value.performanceBreakdown.clubStatsCoverage)],
   ["公开数据匹配", team.value.publicPerformance ? "已接入" : "未匹配"]
