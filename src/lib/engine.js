@@ -820,6 +820,8 @@ const ODDS_API = {
 const CLOSE_MATCH_THRESHOLD = 1;
 const GROUP_STAGE_DRAW_CONFIDENCE_MAX = 0.3;
 const KNOCKOUT_DRAW_CONFIDENCE_MAX = 0.33;
+// 平局概率随两队评分差(0~100 尺度)高斯衰减的尺度，约 14 分=明显热门。
+const DRAW_CONFIDENCE_SIGMA = 14;
 const WIN_CONFIDENCE_MIN = 0.5;
 const WIN_CONFIDENCE_MAX = 0.8;
 const WIN_CONFIDENCE_SCALE = 16;
@@ -1300,11 +1302,12 @@ function getPredictionConfidence(diff) {
 
 function getDrawConfidence(diff, match = null) {
   const edge = Math.abs(Number(diff) || 0);
-  const closeness = Math.max(0, CLOSE_MATCH_THRESHOLD - edge) / Math.max(1, CLOSE_MATCH_THRESHOLD);
   const maxConfidence = isKnockoutMatch(match)
     ? KNOCKOUT_DRAW_CONFIDENCE_MAX
     : GROUP_STAGE_DRAW_CONFIDENCE_MAX;
-  return Math.max(0.18, Math.min(maxConfidence, maxConfidence - 0.08 + closeness * 0.08));
+  // 势均力敌时平局概率最高(=maxConfidence)，随评分差高斯衰减——不再对所有场次输出同一常数。
+  const draw = maxConfidence * Math.exp(-(edge * edge) / (2 * DRAW_CONFIDENCE_SIGMA * DRAW_CONFIDENCE_SIGMA));
+  return Math.max(0.06, draw);
 }
 
 function isKnockoutMatch(match) {
