@@ -2509,7 +2509,7 @@ function buildPublicPerformanceIndex(recentResults) {
     const strongOpponent = strongMatches
       ? clamp((strongPts / strongDen) * 100)
       : clamp(officialResults * 0.6 + 50 * 0.4);
-    const weakOpponentPenalty = calculateMissedWeakWinPenalty(teamName, records, resultScores);
+    const weakOpponentPenalty = calculateMissedWeakWinPenalty(teamName, records, resultScores, strongOpponent);
 
     const aggregate = recentResults.team_aggregates?.[teamName] ?? {};
     const publicScore = clamp(
@@ -2546,7 +2546,7 @@ function buildPublicPerformanceIndex(recentResults) {
   };
 }
 
-function calculateMissedWeakWinPenalty(teamName, records, resultScores) {
+function calculateMissedWeakWinPenalty(teamName, records, resultScores, strongOpponent = 50) {
   const ownStrength = Number(resultScores.get(teamName) ?? 50);
   if (ownStrength < 58) return 0;
 
@@ -2563,10 +2563,13 @@ function calculateMissedWeakWinPenalty(teamName, records, resultScores) {
 
     const resultSeverity = points === 1 ? 1 : 1.35;
     const gapSeverity = Math.min(1.4, 1 + (strengthGap - 14) / 35);
-    penalty += 10 * resultSeverity * gapSeverity * weight;
+    penalty += 7 * resultSeverity * gapSeverity * weight;
   });
 
-  return totalWeight ? Math.min(12, penalty / Math.max(totalWeight * 0.35, 1)) : 0;
+  const cappedPenalty = totalWeight ? Math.min(8, penalty / Math.max(totalWeight * 0.35, 1)) : 0;
+  // 用强强表现抵消：越能跟强队掰手腕(strongOpponent 越高于 65)，弱旅丢分的罚分越轻。
+  const strongOffset = Math.max(0, Number(strongOpponent) - 65) * 0.2;
+  return Math.max(0, cappedPenalty - strongOffset);
 }
 
 function applyPublicPerformance(team) {
@@ -3360,7 +3363,21 @@ function getPlayerQualityScore(player, fallback) {
   const clubRole = getClubRoleQualityAdjustment(clubSignal, role, appearance, isEliteClubPlayer(player));
   const ageAdjustment = getAgeQualityAdjustment(player);
   const clubPerformanceAdjustment = getClubPerformanceAdjustment(player);
-  return clamp(base * 0.42 + league * 0.2 + clubSignal * 0.16 + role * 0.22 + clubRole + ageAdjustment + clubPerformanceAdjustment);
+  const quality = clamp(base * 0.42 + league * 0.2 + clubSignal * 0.16 + role * 0.22 + clubRole + ageAdjustment + clubPerformanceAdjustment);
+  return Math.max(quality, getStarPedigreeFloor(player));
+}
+
+// 球星地板分：身处弱联赛但个人成色顶级的国家队主力——成色不该被联赛标签一刀切(如孙兴慜去 MLS)。
+// 触发条件: 国家队出场≥100(长期主力) + 首发(roleStability≥74) + 联赛属"中游"档 66≤lg<78。
+// 下限 66 刻意排除卡塔尔/埃及等封闭弱联赛里靠多打比赛刷 caps 的球员(caps≠成色)；
+// 上限 78 表示强联赛本就由正常评分体现、无需兜底。地板随资历递增(76~81)，只取 max、不加成。
+function getStarPedigreeFloor(player) {
+  const caps = Number(player.caps ?? 0);
+  const league = Number(player.leagueStrength ?? 100);
+  const role = Number(player.roleStability ?? 0);
+  if (caps < 100 || league < 66 || league >= 78 || role < 74) return 0;
+  const capTier = Math.min(1, (caps - 100) / 60);
+  return 76 + capTier * 5;
 }
 
 function getClubCompetitivenessSignal(player, clubCompetitiveness, leagueStrength) {
@@ -3610,7 +3627,9 @@ function player(name, nameEn, age, position, tier, appearanceWeight, club, clubE
 }
 
 
-// 模型整体战绩：对所有已完赛场次(实时+本地缓存)比对预测与实际结果
+// 模型整体战绩：对所有已完赛场次(实时+本地缓存)比对预测与实际结果。
+// 命中口径与底部回测(getBenchmarkComparison)统一：对模型的主-平-客概率取 argmax，
+// 平局可被预测命中；样本仍为全部完赛场次(与底部"三方可比交集"不同，见各处小字说明)。
 function getPredictionStats() {
   const liveFinished = (appState.liveSchedule?.matches ?? [])
     .map(liveMatchToLocal)
@@ -3628,10 +3647,11 @@ function getPredictionStats() {
     const pair = getLineupAdjustedPair(match, teamA, teamB);
     const prediction = getPrediction(pair.teamA, pair.teamB, match);
     if (!prediction) return;
+    const probs = getModelProbabilities(pair.teamA, pair.teamB, match);
     total += 1;
     if (actual === "draw") draws += 1;
     if (actual === "draw" && prediction.closeMatch) drawRiskHits += 1;
-    if (prediction.outcome === actual) {
+    if (probs && topPick(probs) === actual) {
       hits += 1;
     }
   });

@@ -4,7 +4,7 @@ import {
   appState, getFeaturedBannerMatches, getBannerMatchStatus, findTeamByName,
   formatTeamName, getPrediction, getPredictionResultText, getPredictionStats,
   ensureMatchLineups, getLineupAdjustedPair, renderOddsText, getBannerClockDelay,
-  formatVenueName, getBookmakerProbabilities, formatPercent
+  formatVenueName, getBookmakerProbabilities, getModelProbabilities, formatPercent
 } from "../lib/engine.js";
 import { openCompare } from "../lib/ui.js";
 
@@ -28,9 +28,11 @@ const cards = computed(() => {
     // 有保存的实际首发时按首发修正分计算。
     let predictText = "";
     let prediction = null;
+    let modelProbs = null;
     if (teamA && teamB) {
       const pair = getLineupAdjustedPair(local, teamA, teamB);
       prediction = getPrediction(pair.teamA, pair.teamB, local);
+      modelProbs = getModelProbabilities(pair.teamA, pair.teamB, local);
       predictText = getPredictionResultText(
         { ...local, score: local.liveScore, resultFinal: local.status === "FINISHED" },
         pair.teamA,
@@ -40,9 +42,16 @@ const cards = computed(() => {
     }
     const predictParts = predictionParts(predictText);
     const market = getMarketLean(local, prediction, teamA, teamB);
+    const winDrawLoss = modelProbs
+      ? [
+          { label: formatTeamName(local.team1), value: formatPercent(modelProbs.home) },
+          { label: "平", value: formatPercent(modelProbs.draw) },
+          { label: formatTeamName(local.team2), value: formatPercent(modelProbs.away) }
+        ]
+      : null;
     return {
       local, teamA, teamB, stageText, venueText, status, predictText, predictParts,
-      market,
+      market, winDrawLoss,
       odds: renderOddsText(local),
       key: `${local.date}|${local.team1}|${local.team2}`
     };
@@ -153,6 +162,7 @@ function onCardClick(card) {
       <span class="stat-value">{{ Math.round(stats.accuracy * 100) }}<small>%</small></span>
       <span class="live-meta">已完赛 {{ stats.total }} 场 · 命中 {{ stats.hits }} 场</span>
       <span class="live-meta">实际平局 {{ stats.draws }} 场 · 风险命中 {{ stats.drawHits }} 场</span>
+      <span class="live-note">命中口径：主-平-客取最大概率（含平局）· 全部完赛场次</span>
     </div>
     <button
       v-for="card in cards"
@@ -174,6 +184,12 @@ function onCardClick(card) {
       </span>
       <span class="live-meta">{{ [card.local.date, card.local.time, card.stageText || "世界杯"].filter(Boolean).join(" · ") }}</span>
       <span class="live-venue">{{ card.venueText }}</span>
+      <span v-if="card.winDrawLoss" class="live-probs">
+        <span v-for="p in card.winDrawLoss" :key="p.label" class="live-prob">
+          <span class="live-prob-label">{{ p.label }}</span>
+          <span class="live-prob-value">{{ p.value }}</span>
+        </span>
+      </span>
       <span v-if="card.predictText || card.odds" class="live-card-info">
         <span v-if="card.predictText" class="live-predict" :class="{ hit: card.predictParts.hit }">
           <strong v-if="card.predictParts.hit">{{ card.predictParts.hit }}</strong>{{ card.predictParts.prefix }}<strong v-if="card.predictParts.favorite" class="live-favorite-team">{{ card.predictParts.favorite }}</strong>{{ card.predictParts.confidencePrefix }}<span v-if="card.predictParts.confidence" class="live-confidence">{{ card.predictParts.confidence }}</span>{{ card.predictParts.suffix }}

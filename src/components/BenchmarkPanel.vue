@@ -75,7 +75,7 @@ const rows = computed(() => {
         </div>
       </div>
       <p class="benchmark-foot">
-        样本 {{ report.sampleSize }} 场 · 仅统计三方均有数据的场次 · Brier 分与对数损失越低越好 · Elo 快照 {{ report.eloSnapshotDate }}（{{ report.eloSource }}）
+        命中率口径：主-平-客取最大概率（与顶部模型战绩一致）· 样本 {{ report.sampleSize }} 场 · 仅统计三方均有数据的场次（故样本少于顶部全场）· Brier 分与对数损失越低越好 · Elo 快照 {{ report.eloSnapshotDate }}（{{ report.eloSource }}）
       </p>
     </template>
   </section>

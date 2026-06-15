@@ -400,6 +400,47 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   overflow-wrap: anywhere;
 }
 
+.live-note {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+.live-probs {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.live-prob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+}
+
+.live-prob-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-prob-value {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- 赛事页 ---------- */
 
 .events-page {
