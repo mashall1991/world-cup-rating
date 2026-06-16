@@ -2839,18 +2839,25 @@ function calculatePublicVillainBreakdown(teamName, matches, strongTeams, resultS
     if (!isJustice) return;
 
     const justiceWeightFactor = strongTeams.has(opponent) ? 1 : 0.65;
-    // 拉大胜/平差距：平局是「没把强队拉下马」，反派含金量应明显低于爆冷取胜。
-    const resultValue = points === 3 ? 100 : points === 1 ? 58 : 16;
+    // 弱势系数：gap>0(对手更强)才算「以弱抗强」，gap<=0(你不弱于对手)几乎不给反派分。
+    // 这样豪强赢同级/比自己弱的强队不再被当成爆冷，只有真正以弱胜强才高分；
+    // 而豪强若打赢比自己更强的队(gap>0)仍能拿到爆冷分。
+    const underdogFactor = Math.min(1, Math.max(0, gap) / 22);
+    // 胜/平基础分按弱势系数缩放；平局是「没把强队拉下马」，含金量明显低于爆冷取胜。
+    const resultValue = points === 3 ? 32 + 68 * underdogFactor
+      : points === 1 ? 16 + 42 * underdogFactor
+      : 16;
     const underdogBonus = points > 0 ? Math.max(0, Math.min(16, gap * 0.45)) : 0;
     justiceScore += clamp(resultValue + underdogBonus) * weight * justiceWeightFactor;
     justiceWeight += weight * justiceWeightFactor;
 
     if (points > 0) {
-      const upsetValue = points === 3 ? 96 : 56;
+      const upsetValue = points === 3 ? 28 + 68 * underdogFactor : 14 + 42 * underdogFactor;
       upsetScore += clamp(upsetValue + Math.max(0, gap) * 0.55) * weight;
       upsetWeight += weight;
-      // 胜=顶住强队，平=拖住强队；原 45 分支在 points>0 时恒不可达，已删。
-      resilienceScore += clamp((points === 3 ? 80 : 56) + Math.max(0, gap) * 0.35) * weight;
+      // 胜=顶住强队，平=拖住强队；基础值同样按弱势系数缩放(原 45 分支在 points>0 时恒不可达，已删)。
+      const resilienceBase = points === 3 ? 48 + 32 * underdogFactor : 30 + 26 * underdogFactor;
+      resilienceScore += clamp(resilienceBase + Math.max(0, gap) * 0.35) * weight;
       resilienceWeight += weight;
     } else {
       resilienceScore += clamp(28 + Math.max(0, gap) * 0.18) * weight * 0.45;
@@ -2962,9 +2969,11 @@ function buildTeamVillainBreakdown(team, publicVillain, weakOpponentPenalty = 0,
   const officialResults = Number(team.performanceBreakdown?.officialResults ?? calibratedTeamResults ?? 50);
   const baseStrength = Number(team.dimensions?.environment ?? 60);
   const underdogAura = clamp((82 - baseStrength) * 1.45);
-  const faceJustice = clamp(strongOpponent);
-  const upsetPower = clamp((strongOpponent - 42) * 1.15 + underdogAura * 0.22);
-  const justiceNotHereYet = clamp(strongOpponent * 0.62 + officialResults * 0.18 + underdogAura * 0.12);
+  // 无逐场数据时，用整体实力近似弱势系数：越强(baseStrength 越高)越不算反派。
+  const underdogFactor = Math.min(1, Math.max(0, (78 - baseStrength) / 24));
+  const faceJustice = clamp(strongOpponent * underdogFactor);
+  const upsetPower = clamp((strongOpponent - 42) * 1.15 * underdogFactor + underdogAura * 0.22);
+  const justiceNotHereYet = clamp((strongOpponent * 0.62 + officialResults * 0.18) * underdogFactor + underdogAura * 0.12);
   const weakTeamBullyPenalty = Math.min(24, Number(weakOpponentPenalty) * 3.2);
   return {
     score: clamp(faceJustice * 0.4 + upsetPower * 0.32 + justiceNotHereYet * 0.18 + underdogAura * 0.1 - weakTeamBullyPenalty),
