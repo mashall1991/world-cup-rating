@@ -238,14 +238,11 @@ watchEffect(() => {
 
 function onCardClick(card) {
   if (!card.teamA || !card.teamB) return;
-  if (isVillainOpen(card.key) && card.villain) {
-    openVillainDetail(card);
-    return;
-  }
+  // 反派模式下也弹出对比弹窗(反派配色),而不是跳转到排名页
   openCompare(card.teamA, card.teamB, {
     ...card.local,
     meta: [card.status.label, card.stageText, card.venueText].filter(Boolean).join(" · ")
-  });
+  }, { villain: isVillainOpen(card.key) });
 }
 
 function openVillainDetail(card) {
@@ -295,7 +292,7 @@ function getVillainDetailTeam(card) {
       tabindex="0"
       class="live-match-card"
       :class="[card.status.className, { 'villain-active': isVillainOpen(card.key) }]"
-      :title="card.teamA && card.teamB ? (isVillainOpen(card.key) ? '点击查看反派国家详情' : '点击查看两队实力对比') : undefined"
+      :title="card.teamA && card.teamB ? (isVillainOpen(card.key) ? '点击查看反派模式对比' : '点击查看两队实力对比') : undefined"
       @click="onCardClick(card)"
       @keydown.enter.prevent="onCardClick(card)"
       @keydown.space.prevent="onCardClick(card)"

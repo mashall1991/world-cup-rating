@@ -1874,6 +1874,30 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
   scrollbar-width: thin;
 }
 
+/* 反派模式对比弹窗：沿用深蓝面板叠红色强调，与反派模式同源 */
+.villain-compare {
+  border-color: var(--villain-line);
+  background:
+    radial-gradient(560px 220px at 15% 0%, var(--villain-wash-strong), transparent 64%),
+    var(--villain-surface);
+  box-shadow: 0 0 0 1px var(--villain-line-soft), var(--shadow);
+}
+
+.villain-compare .dialog-head h2 { color: var(--villain-ink); }
+.villain-compare .dialog-head .eyebrow,
+.villain-compare .dialog-head .vs { color: var(--villain-accent); }
+.villain-compare .compare-score {
+  color: var(--villain-accent);
+  text-shadow: 0 0 14px var(--villain-glow);
+}
+.villain-compare .compare-row strong.lead,
+.villain-compare .section-heading h3,
+.villain-compare .compare-team strong { color: var(--villain-ink); }
+.villain-compare .icon-button:hover {
+  color: var(--villain-accent);
+  border-color: var(--villain-line);
+}
+
 .dialog-head {
   display: flex;
   align-items: flex-start;

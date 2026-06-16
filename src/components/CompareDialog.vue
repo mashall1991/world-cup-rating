@@ -126,7 +126,7 @@ watch(
 <template>
   <Teleport to="body">
     <div v-if="ui.compare.open && teamA && teamB" class="modal-overlay" @click.self="closeCompare()">
-      <div class="modal compare-dialog" role="dialog" aria-modal="true" aria-label="两队实力对比">
+      <div class="modal compare-dialog" :class="{ 'villain-compare': ui.compare.villain }" role="dialog" aria-modal="true" aria-label="两队实力对比">
         <div class="dialog-head">
           <div>
             <p class="eyebrow">{{ metaText }}</p>
