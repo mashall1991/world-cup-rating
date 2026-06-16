@@ -331,6 +331,8 @@ const FINISHED_HOME_RESULTS_STORAGE_KEY = "worldCupFinishedPredictionResults";
 const ODDS_STORAGE_KEY = "wcOddsCache";
 const ODDS_STORAGE_VERSION = 4;
 const ODDS_DEBUG_STORAGE_KEY = "wcOddsDebug";
+const VILLAIN_HEAT_STORAGE_KEY = "wcVillainHeatCache";
+const VILLAIN_HEAT_STORAGE_VERSION = 1;
 
 const VENUE_ZH_LABELS = Object.freeze({
   "Mexico City": "墨西哥城",
@@ -924,7 +926,7 @@ export const appState = reactive({
   liveScheduleAttempted: false,
   odds: null,
   oddsLoading: false,
-  villainHeat: {},
+  villainHeat: readVillainHeatCache()?.counts ?? {},
   villainHeatUpdatedAt: null,
   villainHeatLoading: false,
   matchLineupVersion: 0
@@ -1178,6 +1180,41 @@ function mergeVillainHeatCounts(incoming) {
   return merged;
 }
 
+function normalizeVillainHeatStore(store) {
+  const counts = store?.counts && typeof store.counts === "object" ? store.counts : store;
+  if (!counts || typeof counts !== "object") return { updatedAt: null, counts: {} };
+  const entries = Object.entries(counts)
+    .map(([key, value]) => [String(key), normalizeHeatCount(value)])
+    .filter(([key, value]) => key && value > 0)
+    .slice(-800);
+  return {
+    updatedAt: store?.updatedAt ?? null,
+    counts: Object.fromEntries(entries)
+  };
+}
+
+function readVillainHeatCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(VILLAIN_HEAT_STORAGE_KEY));
+    if (parsed?.cacheVersion !== VILLAIN_HEAT_STORAGE_VERSION) return null;
+    return normalizeVillainHeatStore(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function writeVillainHeatCache(counts, updatedAt = new Date().toISOString()) {
+  try {
+    const store = normalizeVillainHeatStore({ updatedAt, counts });
+    localStorage.setItem(VILLAIN_HEAT_STORAGE_KEY, JSON.stringify({
+      ...store,
+      cacheVersion: VILLAIN_HEAT_STORAGE_VERSION
+    }));
+  } catch {
+    // 热度缓存只是兜底，写入失败时继续使用内存数据。
+  }
+}
+
 function getVillainHeat(match) {
   const key = getMatchInteractionKey(match);
   return getHeatCountByKey(key);
@@ -1197,8 +1234,14 @@ async function loadVillainHeat() {
     const data = await response.json();
     appState.villainHeat = data?.counts && typeof data.counts === "object" ? mergeVillainHeatCounts(data.counts) : appState.villainHeat;
     appState.villainHeatUpdatedAt = data?.updatedAt ?? new Date().toISOString();
+    writeVillainHeatCache(appState.villainHeat, appState.villainHeatUpdatedAt);
   } catch {
     // 热度只是互动数据，接口不可用时不影响预测本身。
+    const cached = readVillainHeatCache();
+    if (cached?.counts) {
+      appState.villainHeat = mergeVillainHeatCounts(cached.counts);
+      appState.villainHeatUpdatedAt = cached.updatedAt ?? appState.villainHeatUpdatedAt;
+    }
   } finally {
     appState.villainHeatLoading = false;
     scheduleNextVillainHeatLoad();
@@ -1227,6 +1270,7 @@ async function recordHeatKey(key) {
   if (!VILLAIN_HEAT_API.available) return getHeatCountByKey(key);
   const optimistic = getHeatCountByKey(key) + 1;
   appState.villainHeat = { ...appState.villainHeat, [key]: optimistic };
+  writeVillainHeatCache(appState.villainHeat, appState.villainHeatUpdatedAt ?? new Date().toISOString());
   try {
     const response = await fetch(VILLAIN_HEAT_API.endpoint, {
       method: "POST",
@@ -1243,6 +1287,7 @@ async function recordHeatKey(key) {
       appState.villainHeat = { ...appState.villainHeat, [key]: Math.max(getHeatCountByKey(key), normalizeHeatCount(data.count)) };
       appState.villainHeatUpdatedAt = data.updatedAt ?? new Date().toISOString();
     }
+    writeVillainHeatCache(appState.villainHeat, appState.villainHeatUpdatedAt);
     return getHeatCountByKey(key);
   } catch {
     return optimistic;

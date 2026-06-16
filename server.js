@@ -18,7 +18,11 @@ const API_FOOTBALL_BOOKMAKER = process.env.API_FOOTBALL_BOOKMAKER || "";
 const API_FOOTBALL_ODDS_BET = process.env.API_FOOTBALL_ODDS_BET || "1";
 const ROOT = __dirname;
 const UPSTREAM = "https://v3.football.api-sports.io";
-const VILLAIN_HEAT_FILE = process.env.VILLAIN_HEAT_FILE || path.join(ROOT, ".runtime", "villain_heat.json");
+const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID);
+const DEFAULT_VILLAIN_HEAT_FILE = IS_RENDER
+  ? path.join("/var", "data", "villain_heat.json")
+  : path.join(ROOT, ".runtime", "villain_heat.json");
+const VILLAIN_HEAT_FILE = process.env.VILLAIN_HEAT_FILE || DEFAULT_VILLAIN_HEAT_FILE;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
