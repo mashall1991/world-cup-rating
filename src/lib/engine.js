@@ -2839,16 +2839,18 @@ function calculatePublicVillainBreakdown(teamName, matches, strongTeams, resultS
     if (!isJustice) return;
 
     const justiceWeightFactor = strongTeams.has(opponent) ? 1 : 0.65;
-    const resultValue = points === 3 ? 100 : points === 1 ? 74 : 18;
+    // 拉大胜/平差距：平局是「没把强队拉下马」，反派含金量应明显低于爆冷取胜。
+    const resultValue = points === 3 ? 100 : points === 1 ? 58 : 16;
     const underdogBonus = points > 0 ? Math.max(0, Math.min(16, gap * 0.45)) : 0;
     justiceScore += clamp(resultValue + underdogBonus) * weight * justiceWeightFactor;
     justiceWeight += weight * justiceWeightFactor;
 
     if (points > 0) {
-      const upsetValue = points === 3 ? 96 : 70;
+      const upsetValue = points === 3 ? 96 : 56;
       upsetScore += clamp(upsetValue + Math.max(0, gap) * 0.55) * weight;
       upsetWeight += weight;
-      resilienceScore += clamp((goalsAgainst <= goalsFor ? 80 : 45) + Math.max(0, gap) * 0.35) * weight;
+      // 胜=顶住强队，平=拖住强队；原 45 分支在 points>0 时恒不可达，已删。
+      resilienceScore += clamp((points === 3 ? 80 : 56) + Math.max(0, gap) * 0.35) * weight;
       resilienceWeight += weight;
     } else {
       resilienceScore += clamp(28 + Math.max(0, gap) * 0.18) * weight * 0.45;
@@ -2856,16 +2858,17 @@ function calculatePublicVillainBreakdown(teamName, matches, strongTeams, resultS
     }
   });
 
-  const underdogAura = clamp((82 - ownStrength) * 1.8);
+  // 弱旅光环只作点缀：降低系数并减少向其它分项的渗透，让邪恶分以「真打强队」的战绩为主。
+  const underdogAura = clamp((82 - ownStrength) * 1.45);
   const faceJustice = justiceWeight ? justiceScore / justiceWeight : clamp(officialFallbackVillain(ownStrength) * 0.5);
-  const upsetPower = upsetWeight ? upsetScore / upsetWeight : clamp(faceJustice * 0.55 + underdogAura * 0.2);
+  const upsetPower = upsetWeight ? upsetScore / upsetWeight : clamp(faceJustice * 0.55 + underdogAura * 0.12);
   const justiceNotHereYet = resilienceWeight ? resilienceScore / resilienceWeight : clamp(faceJustice * 0.65 + 35 * 0.35);
   const weakTeamBullyPenalty = Math.min(28, Number(weakOpponentPenalty) * 3.6);
   const chaosScore = clamp(
-    faceJustice * 0.38 +
-      upsetPower * 0.3 +
-      justiceNotHereYet * 0.2 +
-      underdogAura * 0.12 -
+    faceJustice * 0.4 +
+      upsetPower * 0.32 +
+      justiceNotHereYet * 0.18 +
+      underdogAura * 0.1 -
       weakTeamBullyPenalty
   );
 
@@ -2958,13 +2961,13 @@ function buildTeamVillainBreakdown(team, publicVillain, weakOpponentPenalty = 0,
   const strongOpponent = Number(team.performanceBreakdown?.strongOpponent ?? calibratedTeamResults ?? 50);
   const officialResults = Number(team.performanceBreakdown?.officialResults ?? calibratedTeamResults ?? 50);
   const baseStrength = Number(team.dimensions?.environment ?? 60);
-  const underdogAura = clamp((82 - baseStrength) * 1.6);
+  const underdogAura = clamp((82 - baseStrength) * 1.45);
   const faceJustice = clamp(strongOpponent);
-  const upsetPower = clamp((strongOpponent - 42) * 1.15 + underdogAura * 0.35);
-  const justiceNotHereYet = clamp(strongOpponent * 0.62 + officialResults * 0.18 + underdogAura * 0.2);
+  const upsetPower = clamp((strongOpponent - 42) * 1.15 + underdogAura * 0.22);
+  const justiceNotHereYet = clamp(strongOpponent * 0.62 + officialResults * 0.18 + underdogAura * 0.12);
   const weakTeamBullyPenalty = Math.min(24, Number(weakOpponentPenalty) * 3.2);
   return {
-    score: clamp(faceJustice * 0.38 + upsetPower * 0.3 + justiceNotHereYet * 0.2 + underdogAura * 0.12 - weakTeamBullyPenalty),
+    score: clamp(faceJustice * 0.4 + upsetPower * 0.32 + justiceNotHereYet * 0.18 + underdogAura * 0.1 - weakTeamBullyPenalty),
     faceJustice,
     upsetPower,
     justiceNotHereYet,
