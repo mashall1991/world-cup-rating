@@ -2380,7 +2380,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
   isolation: isolate;
   border-left: 1px solid rgba(248, 113, 113, 0.5);
   border-radius: var(--radius-sm);
-  padding: 9px 10px 9px 12px;
+  padding: 0 10px 7px 12px;
   overflow: hidden;
   background:
     radial-gradient(160px 90px at 82% 12%, rgba(248, 113, 113, 0.28), transparent 70%),
