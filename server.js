@@ -9,6 +9,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
+const { DatabaseSync } = require("node:sqlite");
 
 const PORT = Number(process.env.PORT) || 3000;
 const TOKEN = process.env.API_FOOTBALL_KEY || process.env.APISPORTS_KEY || process.env.API_SPORTS_KEY || "";
@@ -23,7 +24,12 @@ const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID);
 const DEFAULT_VILLAIN_HEAT_FILE = IS_RENDER
   ? path.join("/var", "data", "villain_heat.json")
   : path.join(ROOT, ".runtime", "villain_heat.json");
+// 旧的 JSON 文件仅用于首次启动时迁移到 SQLite，迁移后不再写入。
 const VILLAIN_HEAT_FILE = process.env.VILLAIN_HEAT_FILE || DEFAULT_VILLAIN_HEAT_FILE;
+const DEFAULT_VILLAIN_HEAT_DB = IS_RENDER
+  ? path.join("/var", "data", "villain_heat.db")
+  : path.join(ROOT, ".runtime", "villain_heat.db");
+const VILLAIN_HEAT_DB = process.env.VILLAIN_HEAT_DB || DEFAULT_VILLAIN_HEAT_DB;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -85,37 +91,66 @@ function readJsonBody(req, maxBytes = 4096) {
   });
 }
 
-function readVillainHeatStore() {
+let heatDb = null;
+function getHeatDb() {
+  if (heatDb) return heatDb;
+  fs.mkdirSync(path.dirname(VILLAIN_HEAT_DB), { recursive: true });
+  heatDb = new DatabaseSync(VILLAIN_HEAT_DB);
+  heatDb.exec(`
+    CREATE TABLE IF NOT EXISTS villain_heat (key TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS villain_meta (k TEXT PRIMARY KEY, v TEXT);
+  `);
+  migrateLegacyHeatJson(heatDb);
+  return heatDb;
+}
+
+function setHeatMeta(db, key, value) {
+  db.prepare("INSERT INTO villain_meta(k, v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").run(key, value);
+}
+
+// 首次启动时把旧的 villain_heat.json 导入 SQLite，避免线上历史热度丢失。
+function migrateLegacyHeatJson(db) {
+  if (db.prepare("SELECT v FROM villain_meta WHERE k = 'migrated'").get()) return;
   try {
     const parsed = JSON.parse(fs.readFileSync(VILLAIN_HEAT_FILE, "utf8"));
     const counts = parsed?.counts && typeof parsed.counts === "object" ? parsed.counts : {};
+    const insert = db.prepare(
+      "INSERT INTO villain_heat(key, count) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET count = MAX(count, excluded.count)"
+    );
+    for (const [key, value] of Object.entries(counts)) {
+      const n = Math.max(0, Math.floor(Number(value) || 0));
+      if (key && n > 0) insert.run(key, n);
+    }
+    if (parsed?.updatedAt) setHeatMeta(db, "updatedAt", String(parsed.updatedAt));
+  } catch {
+    // 没有旧文件或解析失败：当作全新库处理。
+  }
+  setHeatMeta(db, "migrated", new Date().toISOString());
+}
+
+function readVillainHeatStore() {
+  try {
+    const db = getHeatDb();
+    const rows = db.prepare("SELECT key, count FROM villain_heat WHERE count > 0").all();
+    const updatedAt = db.prepare("SELECT v FROM villain_meta WHERE k = 'updatedAt'").get()?.v ?? null;
     return {
-      updatedAt: parsed?.updatedAt ?? null,
-      counts: Object.fromEntries(
-        Object.entries(counts)
-          .map(([key, value]) => [key, Math.max(0, Math.floor(Number(value) || 0))])
-          .filter(([key, value]) => key && value > 0)
-      )
+      updatedAt,
+      counts: Object.fromEntries(rows.map((row) => [row.key, Math.max(0, Math.floor(Number(row.count) || 0))]))
     };
   } catch {
     return { updatedAt: null, counts: {} };
   }
 }
 
-function writeVillainHeatStore(store) {
-  const dir = path.dirname(VILLAIN_HEAT_FILE);
-  fs.mkdirSync(dir, { recursive: true });
-  const entries = Object.entries(store.counts ?? {})
-    .filter(([key, value]) => key && Number(value) > 0)
-    .slice(-800);
-  const payload = {
-    updatedAt: new Date().toISOString(),
-    counts: Object.fromEntries(entries)
-  };
-  const temp = `${VILLAIN_HEAT_FILE}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(payload, null, 2));
-  fs.renameSync(temp, VILLAIN_HEAT_FILE);
-  return payload;
+function incrementVillainHeat(key) {
+  const db = getHeatDb();
+  const updatedAt = new Date().toISOString();
+  // 原子自增：避免 read-modify-write 在并发点击下丢计数。
+  const row = db.prepare(
+    "INSERT INTO villain_heat(key, count) VALUES(?, 1) ON CONFLICT(key) DO UPDATE SET count = count + 1 RETURNING count"
+  ).get(key);
+  setHeatMeta(db, "updatedAt", updatedAt);
+  return { count: Math.max(0, Math.floor(Number(row?.count) || 0)), updatedAt };
 }
 
 function isValidVillainHeatKey(key) {
@@ -142,10 +177,9 @@ async function handleVillainHeat(req, res) {
       sendJson(res, 400, { error: "invalid villain heat key" });
       return;
     }
+    const { count } = incrementVillainHeat(key);
     const store = readVillainHeatStore();
-    store.counts[key] = Math.max(0, Math.floor(Number(store.counts[key]) || 0)) + 1;
-    const saved = writeVillainHeatStore(store);
-    sendJson(res, 200, { key, count: saved.counts[key], ...saved });
+    sendJson(res, 200, { key, count, ...store });
   } catch (error) {
     const message = String(error?.message ?? error);
     sendJson(res, message.includes("large") ? 413 : 400, { error: message });
@@ -247,17 +281,14 @@ function getTargetedFixtureIds(fixtureTeamMap, existingOddsMatches) {
 }
 
 async function fetchTargetedFixtureOdds(fixtureIds) {
-  const matches = [];
-  const attempted = [];
-  for (const fixtureId of fixtureIds) {
+  // 各场赔率相互独立，并发请求把最坏情况从 N×超时 降到 ~1×超时。
+  const responses = await Promise.all(fixtureIds.map(async (fixtureId) => {
     const params = new URLSearchParams({ fixture: String(fixtureId), bet: API_FOOTBALL_ODDS_BET });
     if (API_FOOTBALL_BOOKMAKER) params.set("bookmaker", API_FOOTBALL_BOOKMAKER);
-    attempted.push(fixtureId);
     const { ok, data } = await fetchApiFootballJson("/odds", params);
-    if (!ok) continue;
-    if (Array.isArray(data.response)) matches.push(...data.response);
-  }
-  return { matches, attempted };
+    return ok && Array.isArray(data.response) ? data.response : [];
+  }));
+  return { matches: responses.flat(), attempted: [...fixtureIds] };
 }
 
 async function handleApiFootballProxy(req, res, url) {

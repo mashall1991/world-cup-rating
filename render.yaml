@@ -22,5 +22,8 @@ services:
         value: "2026"
       - key: API_FOOTBALL_TIMEZONE
         value: Asia/Shanghai
+      # 旧 JSON 仅用于首次迁移；热度现以 SQLite 持久化在同一块磁盘上
       - key: VILLAIN_HEAT_FILE
         value: /var/data/villain_heat.json
+      - key: VILLAIN_HEAT_DB
+        value: /var/data/villain_heat.db

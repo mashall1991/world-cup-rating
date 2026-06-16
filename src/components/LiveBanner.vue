@@ -169,10 +169,10 @@ function triggerBubble(refValue, timerName) {
   const now = Date.now();
   if (timerName === "justice") {
     if (now < justiceBubbleMutedUntil) return;
-    justiceBubbleMutedUntil = now + 680;
+    justiceBubbleMutedUntil = now + 720;
   } else {
     if (now < evilBubbleMutedUntil) return;
-    evilBubbleMutedUntil = now + 680;
+    evilBubbleMutedUntil = now + 720;
   }
   refValue.value = false;
   const nextFrame = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (fn) => setTimeout(fn, 0);
@@ -183,10 +183,10 @@ function triggerBubble(refValue, timerName) {
   });
   if (timerName === "justice") {
     clearTimeout(justiceBubbleTimer);
-    justiceBubbleTimer = setTimeout(() => { justiceBubbleBump.value = false; }, 620);
+    justiceBubbleTimer = setTimeout(() => { justiceBubbleBump.value = false; }, 700);
   } else {
     clearTimeout(evilBubbleTimer);
-    evilBubbleTimer = setTimeout(() => { evilBubbleBump.value = false; }, 620);
+    evilBubbleTimer = setTimeout(() => { evilBubbleBump.value = false; }, 700);
   }
 }
 
