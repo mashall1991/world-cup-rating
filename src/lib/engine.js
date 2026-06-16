@@ -816,6 +816,14 @@ const ODDS_API = {
   }
 };
 
+const VILLAIN_HEAT_API = {
+  endpoint: "/api/villain-heat",
+  refreshMs: 15 * 1000,
+  get available() {
+    return window.location.protocol === "http:" || window.location.protocol === "https:";
+  }
+};
+
 // 势均力敌阈值：评分差在 1 分内时提示平局风险,但不直接把赛果预测为平局。
 const CLOSE_MATCH_THRESHOLD = 1;
 const GROUP_STAGE_DRAW_CONFIDENCE_MAX = 0.3;
@@ -906,6 +914,7 @@ export const appState = reactive({
   selectedId: null,
   query: "",
   sortMode: "rank",
+  rankingVillainMode: false,
   view: "events",
   scheduleMode: "recent",
   scheduleQuery: "",
@@ -915,6 +924,9 @@ export const appState = reactive({
   liveScheduleAttempted: false,
   odds: null,
   oddsLoading: false,
+  villainHeat: {},
+  villainHeatUpdatedAt: null,
+  villainHeatLoading: false,
   matchLineupVersion: 0
 });
 
@@ -1028,6 +1040,8 @@ async function loadLiveSchedule() {
   const cached = readScheduleCache();
   if (isFreshScheduleCache(cached)) {
     appState.liveSchedule = { ...cached, source: "cache" };
+    refreshPublicPerformanceFromCurrentData();
+    refreshTeamScores();
     scheduleNextLiveScheduleLoad(getScheduleCacheRemainingMs(cached));
     return;
   }
@@ -1042,6 +1056,8 @@ async function loadLiveSchedule() {
         fetchedAt: new Date().toISOString(),
         matches
       };
+      refreshPublicPerformanceFromCurrentData();
+      refreshTeamScores();
       try {
         writeScheduleCache(appState.liveSchedule);
       } catch {
@@ -1053,6 +1069,8 @@ async function loadLiveSchedule() {
     try {
       if (isFreshScheduleCache(cached)) {
         appState.liveSchedule = { ...cached, source: "cache" };
+        refreshPublicPerformanceFromCurrentData();
+        refreshTeamScores();
       } else if (!isFreshScheduleCache(appState.liveSchedule)) {
         appState.liveSchedule = null;
       }
@@ -1128,6 +1146,109 @@ async function loadOdds() {
 function scheduleNextOddsLoad(delayMs) {
   clearTimeout(appState.oddsPollTimer);
   appState.oddsPollTimer = setTimeout(loadOdds, Math.max(30000, Number(delayMs) || ODDS_API.refreshMs));
+}
+
+function getMatchInteractionKey(match) {
+  return [
+    String(match?.date ?? "").trim(),
+    normalizeTeamKey(match?.team1),
+    normalizeTeamKey(match?.team2)
+  ].join("|");
+}
+
+const GLOBAL_MODE_HEAT_KEYS = Object.freeze({
+  justice: "global:justice",
+  evil: "global:evil"
+});
+
+function getHeatCountByKey(key) {
+  return Math.max(0, Math.floor(Number(appState.villainHeat?.[key]) || 0));
+}
+
+function normalizeHeatCount(value) {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function mergeVillainHeatCounts(incoming) {
+  if (!incoming || typeof incoming !== "object") return {};
+  const merged = { ...appState.villainHeat };
+  Object.entries(incoming).forEach(([key, value]) => {
+    merged[key] = Math.max(normalizeHeatCount(merged[key]), normalizeHeatCount(value));
+  });
+  return merged;
+}
+
+function getVillainHeat(match) {
+  const key = getMatchInteractionKey(match);
+  return getHeatCountByKey(key);
+}
+
+function getGlobalModeHeat(mode) {
+  const key = GLOBAL_MODE_HEAT_KEYS[mode];
+  return key ? getHeatCountByKey(key) : 0;
+}
+
+async function loadVillainHeat() {
+  if (!VILLAIN_HEAT_API.available || appState.villainHeatLoading) return;
+  appState.villainHeatLoading = true;
+  try {
+    const response = await fetch(`${VILLAIN_HEAT_API.endpoint}?ts=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    appState.villainHeat = data?.counts && typeof data.counts === "object" ? mergeVillainHeatCounts(data.counts) : appState.villainHeat;
+    appState.villainHeatUpdatedAt = data?.updatedAt ?? new Date().toISOString();
+  } catch {
+    // 热度只是互动数据，接口不可用时不影响预测本身。
+  } finally {
+    appState.villainHeatLoading = false;
+    scheduleNextVillainHeatLoad();
+  }
+}
+
+function scheduleNextVillainHeatLoad(delayMs = VILLAIN_HEAT_API.refreshMs) {
+  clearTimeout(appState.villainHeatPollTimer);
+  if (!VILLAIN_HEAT_API.available) return;
+  appState.villainHeatPollTimer = setTimeout(loadVillainHeat, Math.max(5000, Number(delayMs) || VILLAIN_HEAT_API.refreshMs));
+}
+
+async function recordVillainHeat(match) {
+  const key = getMatchInteractionKey(match);
+  if (!key || key.split("|").some((part) => !part)) return 0;
+  return recordHeatKey(key);
+}
+
+async function recordGlobalModeHeat(mode) {
+  const key = GLOBAL_MODE_HEAT_KEYS[mode];
+  if (!key) return 0;
+  return recordHeatKey(key);
+}
+
+async function recordHeatKey(key) {
+  if (!VILLAIN_HEAT_API.available) return getHeatCountByKey(key);
+  const optimistic = getHeatCountByKey(key) + 1;
+  appState.villainHeat = { ...appState.villainHeat, [key]: optimistic };
+  try {
+    const response = await fetch(VILLAIN_HEAT_API.endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+      cache: "no-store"
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (data?.counts && typeof data.counts === "object") {
+      appState.villainHeat = mergeVillainHeatCounts(data.counts);
+      appState.villainHeatUpdatedAt = data.updatedAt ?? new Date().toISOString();
+    } else if (Number.isFinite(Number(data?.count))) {
+      appState.villainHeat = { ...appState.villainHeat, [key]: Math.max(getHeatCountByKey(key), normalizeHeatCount(data.count)) };
+      appState.villainHeatUpdatedAt = data.updatedAt ?? new Date().toISOString();
+    }
+    return getHeatCountByKey(key);
+  } catch {
+    return optimistic;
+  } finally {
+    scheduleNextVillainHeatLoad();
+  }
 }
 
 function readOddsCache() {
@@ -1352,6 +1473,26 @@ function getPredictionResultText(match, teamA, teamB) {
   }
   const hit = prediction.outcome === actual;
   const outcomeLabel = hit ? "预测命中" : actual === "draw" && prediction.closeMatch ? "平局风险命中" : "预测未中";
+  return `${outcomeLabel} · ${confidenceText}`;
+}
+
+function getVillainPredictionBadge(match, teamA, teamB) {
+  if (!match.resultFinal) return "";
+  const prediction = getVillainPrediction(teamA, teamB, match);
+  const actual = getScoreOutcome(match.score ?? match.liveScore);
+  if (!prediction || !actual) return "";
+  return prediction.hitOutcomes?.includes(actual) ? "反派命中" : "反派未中";
+}
+
+function getVillainPredictionResultText(match, teamA, teamB) {
+  const prediction = getVillainPrediction(teamA, teamB, match);
+  if (!prediction) return "暂无模型评分";
+  const actual = getScoreOutcome(match.score ?? match.liveScore);
+  const confidenceText = `${prediction.text} · 命中口径 ${prediction.label}`;
+  if (!match.resultFinal || !actual) {
+    return confidenceText;
+  }
+  const outcomeLabel = prediction.hitOutcomes?.includes(actual) ? "反派命中" : "反派未中";
   return `${outcomeLabel} · ${confidenceText}`;
 }
 
@@ -1784,7 +1925,7 @@ function normalizeApiFootballGroup(round) {
 }
 
 function getSelectedTeam() {
-  const teams = rankTeams(appState.teams);
+  const teams = appState.rankingVillainMode ? rankEvilTeams(appState.teams) : rankTeams(appState.teams);
   return teams.find((item) => item.id === appState.selectedId) ?? teams[0] ?? null;
 }
 
@@ -2252,6 +2393,42 @@ function getRecentMatches() {
   return appState.publicData?.recentResults?.matches ?? [];
 }
 
+function getFinishedWorldCupResultsForPublicPerformance() {
+  const liveFinished = (appState.liveSchedule?.matches ?? [])
+    .map(liveMatchToLocal)
+    .filter((match) => match.status === "FINISHED");
+  return mergeFinishedMatches(liveFinished, readFinishedHomeResults())
+    .map(worldCupFinishedToRecentResult)
+    .filter(Boolean);
+}
+
+function worldCupFinishedToRecentResult(match) {
+  const score = parseScoreText(match.liveScore ?? match.score);
+  if (!score) return null;
+  const home = findTeamByName(match.team1);
+  const away = findTeamByName(match.team2);
+  const homeName = home?.nameEn ?? match.team1;
+  const awayName = away?.nameEn ?? match.team2;
+  if (!homeName || !awayName || homeName === "--" || awayName === "--") return null;
+  return {
+    date: match.date ?? "",
+    home_team: homeName,
+    away_team: awayName,
+    home_score: score.home,
+    away_score: score.away,
+    tournament: "FIFA World Cup",
+    city: match.city ?? "",
+    country: match.ground ?? "",
+    source: "world_cup_live"
+  };
+}
+
+function parseScoreText(scoreText) {
+  const match = /^\s*(\d+)\s*[:：]\s*(\d+)\s*$/.exec(String(scoreText ?? ""));
+  if (!match) return null;
+  return { home: Number(match[1]), away: Number(match[2]) };
+}
+
 function getWorldCupMatches() {
   if (appState.liveSchedule?.matches?.length) {
     return appState.liveSchedule.matches.map(liveMatchToLocal);
@@ -2360,7 +2537,8 @@ function getClubPlayerStats(player) {
 // 3) 单场净胜球截断 ±3，防止血洗弱旅刷攻防分
 // 4) 小样本收缩：正式比赛少于 10 场时向全体均值收缩
 // 5) 强队集合用调整后的积分选取，避免刷分队混入
-function buildPublicPerformanceIndex(recentResults) {
+function buildPublicPerformanceIndex(recentResults, { includeWorldCup = false } = {}) {
+  recentResults = includeWorldCup ? withLatestWorldCupResults(recentResults) : recentResults;
   if (!recentResults?.matches?.length) return null;
 
   const windowEnd = new Date(recentResults.competitive_match_window?.end ?? Date.now());
@@ -2514,6 +2692,7 @@ function buildPublicPerformanceIndex(recentResults) {
       ? clamp((strongPts / strongDen) * 100)
       : clamp(officialResults * 0.6 + 50 * 0.4);
     const weakOpponentPenalty = calculateMissedWeakWinPenalty(teamName, records, resultScores, strongOpponent);
+    const villain = calculatePublicVillainBreakdown(teamName, official, strongTeams, resultScores, decayOf, pointsOf, weakOpponentPenalty);
 
     const aggregate = recentResults.team_aggregates?.[teamName] ?? {};
     const publicScore = clamp(
@@ -2525,14 +2704,15 @@ function buildPublicPerformanceIndex(recentResults) {
     teams.set(normalizeTeamKey(teamName), {
       sourceName: teamName,
       score: publicScore,
-      matches: Number(aggregate.matches ?? item.n),
-      officialMatches: Number(aggregate.official_matches ?? item.n),
+      matches: Math.max(Number(aggregate.matches ?? 0), item.n),
+      officialMatches: Math.max(Number(aggregate.official_matches ?? 0), item.n),
       friendlyMatches: Number(aggregate.friendly_matches ?? 0),
       breakdown: {
         officialResults,
         officialGoalProfile,
         strongOpponent,
-        weakOpponentPenalty
+        weakOpponentPenalty,
+        villain
       }
     });
   });
@@ -2548,6 +2728,114 @@ function buildPublicPerformanceIndex(recentResults) {
       teamCount: strongTeams.size
     }
   };
+}
+
+function refreshPublicPerformanceFromCurrentData() {
+  appState.publicPerformance = buildPublicPerformanceIndex(appState.publicData?.recentResults, { includeWorldCup: true });
+}
+
+function withLatestWorldCupResults(recentResults) {
+  const worldCupResults = getFinishedWorldCupResultsForPublicPerformance();
+  if (!worldCupResults.length) return recentResults;
+  const base = recentResults && typeof recentResults === "object" ? recentResults : {};
+  const merged = [];
+  const seen = new Set();
+  [...(base.matches ?? []), ...worldCupResults].forEach((match) => {
+    const key = getRecentResultKey(match);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(match);
+  });
+  const latestDate = merged
+    .map((match) => String(match.date ?? ""))
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  return {
+    ...base,
+    matches: merged,
+    source: [base.source, worldCupResults.length ? "world_cup_live" : ""].filter(Boolean).join("+"),
+    competitive_match_window: {
+      ...(base.competitive_match_window ?? {}),
+      end: latestDate ?? base.competitive_match_window?.end ?? new Date().toISOString().slice(0, 10)
+    }
+  };
+}
+
+function getRecentResultKey(match) {
+  const date = String(match?.date ?? "");
+  const home = normalizeTeamKey(match?.home_team);
+  const away = normalizeTeamKey(match?.away_team);
+  if (!date || !home || !away) return "";
+  return `${date}|${home}|${away}`;
+}
+
+function calculatePublicVillainBreakdown(teamName, matches, strongTeams, resultScores, decayOf, pointsOf, weakOpponentPenalty = 0) {
+  const ownStrength = Number(resultScores.get(teamName) ?? 50);
+  let justiceScore = 0;
+  let justiceWeight = 0;
+  let upsetScore = 0;
+  let upsetWeight = 0;
+  let resilienceScore = 0;
+  let resilienceWeight = 0;
+
+  matches.forEach((match) => {
+    const isHome = match.home_team === teamName;
+    const isAway = match.away_team === teamName;
+    if (!isHome && !isAway) return;
+    const opponent = isHome ? match.away_team : match.home_team;
+    const opponentStrength = Number(resultScores.get(opponent) ?? 50);
+    const gap = opponentStrength - ownStrength;
+    const weight = decayOf(match.date);
+    const goalsFor = Number(isHome ? match.home_score : match.away_score);
+    const goalsAgainst = Number(isHome ? match.away_score : match.home_score);
+    const points = pointsOf(goalsFor, goalsAgainst);
+    const isJustice = strongTeams.has(opponent) || gap >= 10;
+    if (!isJustice) return;
+
+    const justiceWeightFactor = strongTeams.has(opponent) ? 1 : 0.65;
+    const resultValue = points === 3 ? 100 : points === 1 ? 74 : 18;
+    const underdogBonus = points > 0 ? Math.max(0, Math.min(16, gap * 0.45)) : 0;
+    justiceScore += clamp(resultValue + underdogBonus) * weight * justiceWeightFactor;
+    justiceWeight += weight * justiceWeightFactor;
+
+    if (points > 0) {
+      const upsetValue = points === 3 ? 96 : 70;
+      upsetScore += clamp(upsetValue + Math.max(0, gap) * 0.55) * weight;
+      upsetWeight += weight;
+      resilienceScore += clamp((goalsAgainst <= goalsFor ? 80 : 45) + Math.max(0, gap) * 0.35) * weight;
+      resilienceWeight += weight;
+    } else {
+      resilienceScore += clamp(28 + Math.max(0, gap) * 0.18) * weight * 0.45;
+      resilienceWeight += weight * 0.45;
+    }
+  });
+
+  const underdogAura = clamp((82 - ownStrength) * 1.8);
+  const faceJustice = justiceWeight ? justiceScore / justiceWeight : clamp(officialFallbackVillain(ownStrength) * 0.5);
+  const upsetPower = upsetWeight ? upsetScore / upsetWeight : clamp(faceJustice * 0.55 + underdogAura * 0.2);
+  const justiceNotHereYet = resilienceWeight ? resilienceScore / resilienceWeight : clamp(faceJustice * 0.65 + 35 * 0.35);
+  const weakTeamBullyPenalty = Math.min(28, Number(weakOpponentPenalty) * 3.6);
+  const chaosScore = clamp(
+    faceJustice * 0.38 +
+      upsetPower * 0.3 +
+      justiceNotHereYet * 0.2 +
+      underdogAura * 0.12 -
+      weakTeamBullyPenalty
+  );
+
+  return {
+    score: chaosScore,
+    faceJustice,
+    upsetPower,
+    justiceNotHereYet,
+    underdogAura,
+    weakTeamBullyPenalty
+  };
+}
+
+function officialFallbackVillain(ownStrength) {
+  return Math.max(20, 70 - Math.abs(Number(ownStrength) - 58) * 0.7);
 }
 
 function calculateMissedWeakWinPenalty(teamName, records, resultScores, strongOpponent = 50) {
@@ -2585,6 +2873,7 @@ function applyPublicPerformance(team) {
     : Number(team.dimensions?.performance ?? playerParticipation);
   const weakOpponentPenalty = Number(performance?.breakdown?.weakOpponentPenalty ?? 0);
   const adjustedTeamResults = clamp(calibratedTeamResults - weakOpponentPenalty);
+  const villainBreakdown = buildTeamVillainBreakdown(team, performance?.breakdown?.villain, weakOpponentPenalty, calibratedTeamResults);
   // 世界杯是国家队比赛：近期强度以国家队正式战绩/SOS 为主，俱乐部参与强度作为辅助状态信号。
   const blendedBeforeWeakPenalty = clamp(playerParticipation * 0.45 + calibratedTeamResults * 0.55);
   const blendedPerformance = clamp(blendedBeforeWeakPenalty - weakOpponentPenalty);
@@ -2604,7 +2893,38 @@ function applyPublicPerformance(team) {
       blendedBeforeWeakPenalty,
       blendedScore: blendedPerformance
     },
+    evilScore: villainBreakdown.score,
+    evilBreakdown: villainBreakdown,
     publicPerformance: performance ?? null
+  };
+}
+
+function buildTeamVillainBreakdown(team, publicVillain, weakOpponentPenalty = 0, calibratedTeamResults = 50) {
+  if (publicVillain) {
+    return {
+      score: clamp(publicVillain.score),
+      faceJustice: clamp(publicVillain.faceJustice),
+      upsetPower: clamp(publicVillain.upsetPower),
+      justiceNotHereYet: clamp(publicVillain.justiceNotHereYet),
+      underdogAura: clamp(publicVillain.underdogAura),
+      weakTeamBullyPenalty: clamp(publicVillain.weakTeamBullyPenalty)
+    };
+  }
+  const strongOpponent = Number(team.performanceBreakdown?.strongOpponent ?? calibratedTeamResults ?? 50);
+  const officialResults = Number(team.performanceBreakdown?.officialResults ?? calibratedTeamResults ?? 50);
+  const baseStrength = Number(team.dimensions?.environment ?? 60);
+  const underdogAura = clamp((82 - baseStrength) * 1.6);
+  const faceJustice = clamp(strongOpponent);
+  const upsetPower = clamp((strongOpponent - 42) * 1.15 + underdogAura * 0.35);
+  const justiceNotHereYet = clamp(strongOpponent * 0.62 + officialResults * 0.18 + underdogAura * 0.2);
+  const weakTeamBullyPenalty = Math.min(24, Number(weakOpponentPenalty) * 3.2);
+  return {
+    score: clamp(faceJustice * 0.38 + upsetPower * 0.3 + justiceNotHereYet * 0.2 + underdogAura * 0.12 - weakTeamBullyPenalty),
+    faceJustice,
+    upsetPower,
+    justiceNotHereYet,
+    underdogAura,
+    weakTeamBullyPenalty
   };
 }
 
@@ -3529,8 +3849,28 @@ function rankTeams(teams) {
     .map((team, index) => ({ ...team, rank: index + 1 }));
 }
 
+function rankEvilTeams(teams) {
+  return [...teams]
+    .sort((a, b) => getEvilScore(b) - getEvilScore(a) || b.finalScore - a.finalScore)
+    .map((team, index) => ({ ...team, evilRank: index + 1 }));
+}
+
+function getEvilScore(team) {
+  return clamp(team?.evilScore ?? team?.evilBreakdown?.score ?? 0);
+}
+
+function getEvilTier(score) {
+  const value = Number(score);
+  if (value >= 86) return "终极大反派";
+  if (value >= 76) return "正义克星";
+  if (value >= 66) return "冷门制造机";
+  if (value >= 56) return "添堵专业户";
+  if (value >= 46) return "偶尔使坏";
+  return "正义好朋友";
+}
+
 function getVisibleTeams() {
-  const ranked = rankTeams(appState.teams);
+  const ranked = appState.rankingVillainMode ? rankEvilTeams(appState.teams) : rankTeams(appState.teams);
   const filtered = ranked.filter((team) => {
     const playerText = team.players
       .map((item) => `${item.name} ${item.nameEn} ${item.club} ${item.clubEn}`)
@@ -3539,7 +3879,7 @@ function getVisibleTeams() {
     return value.includes(appState.query);
   });
 
-  if (appState.sortMode === "rank") return filtered;
+  if (appState.rankingVillainMode || appState.sortMode === "rank") return filtered;
 
   return filtered.sort((a, b) => {
     const key = appState.sortMode;
@@ -3661,6 +4001,42 @@ function getPredictionStats() {
     }
   });
   return { total, hits, draws, drawHits: drawRiskHits, accuracy: total ? hits / total : 0 };
+}
+
+function getVillainPredictionStats() {
+  const liveFinished = (appState.liveSchedule?.matches ?? [])
+    .map(liveMatchToLocal)
+    .filter((match) => match.status === "FINISHED");
+  const merged = mergeFinishedMatches(liveFinished, readFinishedHomeResults());
+  let total = 0;
+  let hits = 0;
+  let stake = 0;
+  let profit = 0;
+  merged.forEach((match) => {
+    const teamA = findTeamByName(match.team1);
+    const teamB = findTeamByName(match.team2);
+    const actual = getScoreOutcome(match.liveScore ?? match.score);
+    if (!teamA || !teamB || !actual) return;
+    const pair = getLineupAdjustedPair(match, teamA, teamB);
+    const prediction = getVillainPrediction(pair.teamA, pair.teamB, { ...match, status: "SCHEDULED", resultFinal: false });
+    if (!prediction) return;
+    const hitOutcomes = Array.isArray(prediction.hitOutcomes) ? prediction.hitOutcomes : [prediction.outcome];
+    const portfolioReturn = getVillainPortfolioReturn(getMatchOdds(match), hitOutcomes, actual);
+    total += 1;
+    if (hitOutcomes.includes(actual)) hits += 1;
+    if (portfolioReturn !== null) {
+      stake += 1;
+      profit += portfolioReturn;
+    }
+  });
+  return {
+    total,
+    hits,
+    accuracy: total ? hits / total : 0,
+    stake,
+    profit,
+    roi: stake ? profit / stake : null
+  };
 }
 
 // ==== 每场比赛实际首发的持久化与冻结 ====
@@ -3824,6 +4200,121 @@ function getModelProbabilities(teamA, teamB, match = null) {
   return normalizeProbs(probs);
 }
 
+function getOutcomeLabel(outcome, teamA, teamB) {
+  if (outcome === "home") return teamA?.name ?? "主队";
+  if (outcome === "away") return teamB?.name ?? "客队";
+  return "平局";
+}
+
+function getOutcomeOdds(odds, outcome) {
+  if (!odds) return null;
+  const value = Number(odds[outcome]);
+  return Number.isFinite(value) && value > 1 ? value : null;
+}
+
+function formatProfitPercent(value) {
+  if (!Number.isFinite(Number(value))) return "";
+  const percent = Number(value) * 100;
+  return `${percent > 0 ? "+" : ""}${Math.round(percent)}%`;
+}
+
+function getVillainHitOutcomes(modelPick) {
+  return BENCHMARK_OUTCOMES.filter((outcome) => outcome !== modelPick);
+}
+
+function getVillainCompositeLabel(modelPick, teamA, teamB) {
+  if (modelPick === "home") return `${teamB?.name ?? "客队"}不败`;
+  if (modelPick === "away") return `${teamA?.name ?? "主队"}不败`;
+  return "分出胜负";
+}
+
+function getVillainPlanText(modelPick, label) {
+  if (modelPick === "draw") return `拒绝和平：押 ${label}`;
+  return `爆冷小本本：押 ${label}`;
+}
+
+function getVillainPortfolio(odds, outcomes) {
+  return outcomes
+    .map((outcome) => ({ outcome, odds: getOutcomeOdds(odds, outcome) }))
+    .filter((item) => item.odds);
+}
+
+function getVillainPortfolioReturn(odds, outcomes, actual) {
+  const portfolio = getVillainPortfolio(odds, outcomes);
+  if (!portfolio.length) return null;
+  const stakePerOutcome = 1 / portfolio.length;
+  const winner = portfolio.find((item) => item.outcome === actual);
+  return winner ? winner.odds * stakePerOutcome - 1 : -1;
+}
+
+// 反派模式：反模型首选，按"热门不胜/不平"组合口径命中。
+function getVillainPrediction(teamA, teamB, match = null) {
+  const modelProbs = getModelProbabilities(teamA, teamB, match);
+  if (!modelProbs) return null;
+  const modelPick = topPick(modelProbs);
+  const modelPickProb = clampProb(modelProbs[modelPick]);
+  const odds = isMatchFinished(match) ? null : getMatchOdds(match);
+  const bookmaker = isMatchFinished(match) ? null : getBookmakerProbabilities(match);
+  const hitOutcomes = getVillainHitOutcomes(modelPick);
+  const antiProb = hitOutcomes.reduce((sum, outcome) => sum + clampProb(modelProbs[outcome]), 0);
+  const impliedAnti = bookmaker
+    ? hitOutcomes.reduce((sum, outcome) => sum + clampProb(bookmaker[outcome]), 0)
+    : null;
+  const candidates = hitOutcomes
+    .map((outcome) => {
+      const modelProb = clampProb(modelProbs[outcome]);
+      const implied = bookmaker ? clampProb(bookmaker[outcome]) : null;
+      const price = getOutcomeOdds(odds, outcome);
+      const heat = Math.max(0, Math.min(1, (modelPickProb - 0.42) / 0.34));
+      const valueEdge = implied === null ? 0 : modelProb - implied;
+      const longShotLift = price ? Math.min(0.08, Math.max(0, (price - 2.6) / 36)) : 0;
+      const drawLift = outcome === "draw" ? 0.025 : 0;
+      const confidence = Math.max(
+        0.28,
+        Math.min(0.78, 0.37 + heat * 0.2 + Math.max(0, valueEdge) * 0.95 + longShotLift + drawLift)
+      );
+      const expectedReturn = price ? confidence * price - 1 : null;
+      return {
+        outcome,
+        label: getOutcomeLabel(outcome, teamA, teamB),
+        confidence,
+        odds: price,
+        expectedReturn,
+        profitText: expectedReturn === null ? "" : formatProfitPercent(expectedReturn),
+        score: expectedReturn === null ? modelProb + drawLift : expectedReturn
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+  const pick = candidates[0];
+  if (!pick) return null;
+  const portfolio = getVillainPortfolio(odds, hitOutcomes);
+  const averageHitGross = portfolio.length
+    ? portfolio.reduce((sum, item) => sum + item.odds / portfolio.length, 0) / portfolio.length
+    : null;
+  const heat = Math.max(0, Math.min(1, (modelPickProb - 0.42) / 0.34));
+  const valueEdge = impliedAnti === null ? 0 : antiProb - impliedAnti;
+  const confidence = Math.max(
+    0.3,
+    Math.min(0.82, antiProb * 0.72 + heat * 0.12 + Math.max(0, valueEdge) * 0.75 + 0.08)
+  );
+  const expectedReturn = averageHitGross ? confidence * averageHitGross - 1 : null;
+  const label = getVillainCompositeLabel(modelPick, teamA, teamB);
+  return {
+    ...pick,
+    label,
+    primaryOutcome: pick.outcome,
+    primaryLabel: pick.label,
+    modelPick,
+    modelLabel: getOutcomeLabel(modelPick, teamA, teamB),
+    modelPickConfidence: modelPickProb,
+    hitOutcomes,
+    confidence,
+    expectedReturn,
+    profitText: expectedReturn === null ? "" : formatProfitPercent(expectedReturn),
+    text: `${getVillainPlanText(modelPick, label)} · 坏笑信心 ${formatPercent(confidence)}${expectedReturn === null ? "" : ` · 捣乱收益 ${formatProfitPercent(expectedReturn)}`}`
+  };
+}
+
 // 市场：赔率取倒数得隐含概率，再除以总和去抽水(de-vig)
 function getBookmakerProbabilities(match) {
   const odds = getMatchOdds(match);
@@ -3947,13 +4438,16 @@ export {
   scoreComponentConfig, dimensionConfig, tournamentStageConfig, LINEUP_API, ODDS_API,
   getDefaultCoefficientConfig, saveCoefficientConfig, getCoefficientTotal, getActiveCoefficientConfig,
   getStageLoadConfig, saveStageLoadMode, getEffectiveCoefficients, formatCoefficient,
-  loadLiveSchedule, loadOdds, getPrediction, getPredictionText, getPredictionBadge,
-  getPredictionResultText, getMissingRatingLabel, renderOddsText, getFeaturedBannerMatches,
+  loadLiveSchedule, loadOdds, loadVillainHeat, getPrediction, getPredictionText, getPredictionBadge,
+  getPredictionResultText, getVillainPredictionBadge, getVillainPredictionResultText,
+  getMissingRatingLabel, renderOddsText, getFeaturedBannerMatches,
   getBannerClockDelay,
-  getBannerMatchStatus, isMatchFinished, normalizeTeams, refreshTeamScores, rankTeams,
+  getBannerMatchStatus, isMatchFinished, normalizeTeams, refreshTeamScores, rankTeams, rankEvilTeams,
   getVisibleTeams, getSelectedTeam, findTeamByName, formatTeamName, getRecentMatchRows,
   getFullScheduleRows, matchMatchesScheduleFilters, getWorldCupMatches, getScheduleSourceLabel,
   formatGeneratedAt, formatVenueName, tryLiveLineup, saveLineupCache, readLineupCache, ensureTeamLineup, recomputeWithLineup, recomputeLineupPair,
-  getPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, zhPlayerName, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey,
-  getBenchmarkComparison, getMatchBenchmarkRow, getModelProbabilities, getBookmakerProbabilities, getEloProbabilities, getPlayerClubProfile
+  getPredictionStats, getVillainPredictionStats, ensureMatchLineups, getSavedMatchLineups, getLineupAdjustedPair, zhPlayerName, getTier, formatScore, formatPercent, signed, clamp, shortTier, withScores, normalizeTeamKey,
+  getBenchmarkComparison, getMatchBenchmarkRow, getModelProbabilities, getBookmakerProbabilities, getEloProbabilities, getPlayerClubProfile,
+  getVillainPrediction, getVillainHeat, getGlobalModeHeat, recordVillainHeat, recordGlobalModeHeat, getMatchInteractionKey,
+  getEvilScore, getEvilTier
 };

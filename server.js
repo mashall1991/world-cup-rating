@@ -18,6 +18,7 @@ const API_FOOTBALL_BOOKMAKER = process.env.API_FOOTBALL_BOOKMAKER || "";
 const API_FOOTBALL_ODDS_BET = process.env.API_FOOTBALL_ODDS_BET || "1";
 const ROOT = __dirname;
 const UPSTREAM = "https://v3.football.api-sports.io";
+const VILLAIN_HEAT_FILE = process.env.VILLAIN_HEAT_FILE || path.join(ROOT, ".runtime", "villain_heat.json");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -48,6 +49,99 @@ function sendJson(res, status, payload) {
     "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(payload));
+}
+
+function readJsonBody(req, maxBytes = 4096) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > maxBytes) {
+        reject(new Error("payload too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!raw.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch {
+        reject(new Error("invalid json"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function readVillainHeatStore() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(VILLAIN_HEAT_FILE, "utf8"));
+    const counts = parsed?.counts && typeof parsed.counts === "object" ? parsed.counts : {};
+    return {
+      updatedAt: parsed?.updatedAt ?? null,
+      counts: Object.fromEntries(
+        Object.entries(counts)
+          .map(([key, value]) => [key, Math.max(0, Math.floor(Number(value) || 0))])
+          .filter(([key, value]) => key && value > 0)
+      )
+    };
+  } catch {
+    return { updatedAt: null, counts: {} };
+  }
+}
+
+function writeVillainHeatStore(store) {
+  const dir = path.dirname(VILLAIN_HEAT_FILE);
+  fs.mkdirSync(dir, { recursive: true });
+  const entries = Object.entries(store.counts ?? {})
+    .filter(([key, value]) => key && Number(value) > 0)
+    .slice(-800);
+  const payload = {
+    updatedAt: new Date().toISOString(),
+    counts: Object.fromEntries(entries)
+  };
+  const temp = `${VILLAIN_HEAT_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(payload, null, 2));
+  fs.renameSync(temp, VILLAIN_HEAT_FILE);
+  return payload;
+}
+
+function isValidVillainHeatKey(key) {
+  return typeof key === "string" &&
+    key.length >= 8 &&
+    key.length <= 180 &&
+    /^[a-z0-9|._:-]+$/.test(key);
+}
+
+async function handleVillainHeat(req, res) {
+  if (req.method === "GET") {
+    sendJson(res, 200, readVillainHeatStore());
+    return;
+  }
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(req);
+    const key = String(body?.key ?? "");
+    if (!isValidVillainHeatKey(key)) {
+      sendJson(res, 400, { error: "invalid villain heat key" });
+      return;
+    }
+    const store = readVillainHeatStore();
+    store.counts[key] = Math.max(0, Math.floor(Number(store.counts[key]) || 0)) + 1;
+    const saved = writeVillainHeatStore(store);
+    sendJson(res, 200, { key, count: saved.counts[key], ...saved });
+  } catch (error) {
+    const message = String(error?.message ?? error);
+    sendJson(res, message.includes("large") ? 413 : 400, { error: message });
+  }
 }
 
 function buildApiFootballParams(url, defaults = {}) {
@@ -331,6 +425,8 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
   if (url.pathname === "/api/odds/worldcup") {
     handleOddsProxy(req, res);
+  } else if (url.pathname === "/api/villain-heat") {
+    handleVillainHeat(req, res);
   } else if (url.pathname.startsWith("/api/football/")) {
     handleApiFootballProxy(req, res, url);
   } else {

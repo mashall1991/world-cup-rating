@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { appState } from "./engine.js";
 
 // 跨组件 UI 状态：弹窗与移动端底部浮层
 export const ui = reactive({
@@ -22,6 +23,15 @@ export function openCompare(teamA, teamB, match) {
   ui.compare.teamB = teamB;
   ui.compare.match = match;
   ui.compare.open = true;
+}
+
+export function openVillainTeamDetail(team) {
+  if (!team) return;
+  ui.compare.open = false;
+  appState.view = "ranking";
+  appState.rankingVillainMode = true;
+  appState.selectedId = team.id;
+  ui.sheetOpen = true;
 }
 
 export function closeCompare() {

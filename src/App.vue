@@ -1,6 +1,6 @@
 <script setup>
 import { onBeforeUnmount, onMounted } from "vue";
-import { appState, loadLiveSchedule, loadOdds } from "./lib/engine.js";
+import { appState, loadLiveSchedule, loadOdds, loadVillainHeat } from "./lib/engine.js";
 import LiveBanner from "./components/LiveBanner.vue";
 import BenchmarkPanel from "./components/BenchmarkPanel.vue";
 import TeamList from "./components/TeamList.vue";
@@ -36,6 +36,7 @@ onMounted(() => {
   scheduleTimeTheme();
   loadLiveSchedule();
   loadOdds();
+  loadVillainHeat();
 });
 
 onBeforeUnmount(() => clearInterval(timeThemeTimer));
@@ -47,8 +48,8 @@ onBeforeUnmount(() => clearInterval(timeThemeTimer));
       <div class="brand">
         <span class="brand-mark">⚽️</span>
         <div>
-          <p class="eyebrow">World Cup 2026 · Competitive Strength</p>
-          <h1>世界杯大聪明</h1>
+          <p class="eyebrow">World Cup 2026 · Villain Mode</p>
+          <h1 class="brand-title"><span>世界杯</span><span>大反派</span></h1>
         </div>
       </div>
       <nav class="app-nav" aria-label="页面切换">

@@ -1,12 +1,17 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import {
   appState, getRecentMatchRows, getFullScheduleRows,
   getScheduleSourceLabel, formatGeneratedAt, findTeamByName,
   formatTeamName, getPredictionBadge, getPredictionResultText, getMissingRatingLabel,
-  getLineupAdjustedPair, renderOddsText, getMatchBenchmarkRow
+  getVillainPredictionBadge, getVillainPredictionResultText,
+  getLineupAdjustedPair, renderOddsText, getMatchBenchmarkRow, getVillainPrediction,
+  recordVillainHeat
 } from "../lib/engine.js";
-import { openCompare } from "../lib/ui.js";
+import { openCompare, openVillainTeamDetail } from "../lib/ui.js";
+
+const villainRows = ref(new Set());
+const scheduleVillainMode = ref(false);
 
 function formatProbs(probs) {
   if (!probs) return null;
@@ -50,13 +55,21 @@ const rows = computed(() => {
       // 有保存的实际首发时,预测按首发修正分计算(只读取,不发请求)
       const pair = getLineupAdjustedPair(match, teamA, teamB);
       const suffix = pair.adjusted ? " · 按实际首发" : "";
-      const badge = getPredictionBadge(match, pair.teamA, pair.teamB);
+      const badge = scheduleVillainMode.value
+        ? getVillainPredictionBadge(match, pair.teamA, pair.teamB)
+        : getPredictionBadge(match, pair.teamA, pair.teamB);
+      const prediction = teamA && teamB
+        ? (scheduleVillainMode.value
+            ? getVillainPredictionResultText(match, pair.teamA, pair.teamB)
+            : getPredictionResultText(match, pair.teamA, pair.teamB)) + suffix
+        : "";
       return {
         match, teamA, teamB,
         key: `${match.date}|${match.team1}|${match.team2}|${index}`,
         badge,
-        prediction: teamA && teamB ? getPredictionResultText(match, pair.teamA, pair.teamB) + suffix : "",
-        missed: badge === "预测未中",
+        prediction,
+        villain: teamA && teamB ? getVillainPrediction(pair.teamA, pair.teamB, match) : null,
+        missed: badge === "预测未中" || badge === "反派未中",
         missing: getMissingRatingLabel(match, teamA, teamB),
         odds: renderOddsText(match),
         benchmark: teamA && teamB ? buildBenchLines(getMatchBenchmarkRow(match, pair.teamA, pair.teamB)) : null
@@ -66,7 +79,40 @@ const rows = computed(() => {
 });
 
 function onRowClick(item) {
-  if (item.teamA && item.teamB) openCompare(item.teamA, item.teamB, item.match);
+  if (!item.teamA || !item.teamB) return;
+  if ((scheduleVillainMode.value || isVillainOpen(item.key)) && item.villain) {
+    openVillainDetail(item);
+    return;
+  }
+  openCompare(item.teamA, item.teamB, item.match);
+}
+
+function openVillainDetail(item) {
+  openVillainTeamDetail(getVillainDetailTeam(item));
+}
+
+function getVillainDetailTeam(item) {
+  if (item.villain.modelPick === "home") return item.teamB;
+  if (item.villain.modelPick === "away") return item.teamA;
+  if (item.villain.primaryOutcome === "home") return item.teamA;
+  if (item.villain.primaryOutcome === "away") return item.teamB;
+  return item.teamA;
+}
+
+function isVillainOpen(key) {
+  return villainRows.value.has(key);
+}
+
+function toggleVillain(item) {
+  const next = new Set(villainRows.value);
+  const willOpen = !next.has(item.key);
+  if (willOpen) {
+    next.add(item.key);
+    recordVillainHeat(item.match);
+  } else {
+    next.delete(item.key);
+  }
+  villainRows.value = next;
 }
 </script>
 
@@ -77,6 +123,14 @@ function onRowClick(item) {
         <button :class="{ active: !isFull }" type="button" @click="appState.scheduleMode = 'recent'">近期比赛</button>
         <button :class="{ active: isFull }" type="button" @click="appState.scheduleMode = 'full'">完整赛程</button>
       </div>
+      <button
+        type="button"
+        class="schedule-villain-mode"
+        :class="{ active: scheduleVillainMode }"
+        @click="scheduleVillainMode = !scheduleVillainMode"
+      >
+        反派模式
+      </button>
       <div class="schedule-status">
         <strong>{{ updatedText }}</strong>
       </div>
@@ -95,8 +149,8 @@ function onRowClick(item) {
           v-for="item in rows.items"
           :key="item.key"
           class="match-row"
-          :class="{ clickable: item.teamA && item.teamB, missed: item.missed }"
-          :title="item.missing || (item.teamA && item.teamB ? '点击查看两队实力对比' : undefined)"
+          :class="{ clickable: item.teamA && item.teamB, missed: item.missed, 'villain-active': scheduleVillainMode || isVillainOpen(item.key) }"
+          :title="item.missing || (item.teamA && item.teamB ? ((scheduleVillainMode || isVillainOpen(item.key)) ? '点击查看反派国家详情' : '点击查看两队实力对比') : undefined)"
           @click="onRowClick(item)"
         >
           <div class="match-main">
@@ -130,10 +184,32 @@ function onRowClick(item) {
           </div>
           <div class="match-side">
             <span class="match-pill">{{ item.match.badge }}</span>
-            <span v-if="item.badge" class="match-pill match-pill-success">{{ item.badge }}</span>
+            <span
+              v-if="item.badge"
+              class="match-pill match-pill-success"
+              :class="{ 'match-pill-villain': scheduleVillainMode }"
+            >
+              {{ item.badge }}
+            </span>
             <span v-if="item.prediction" class="match-prediction">{{ item.prediction }}</span>
             <span v-if="item.missing" class="match-pill match-pill-muted">缺少模型评分</span>
+            <button
+              v-if="item.villain && !scheduleVillainMode"
+              type="button"
+              class="villain-toggle"
+              :class="{ active: isVillainOpen(item.key) }"
+              @click.stop="toggleVillain(item)"
+            >
+              反派
+            </button>
             <span class="match-place">{{ item.match.place }}</span>
+          </div>
+          <div v-if="item.villain && (scheduleVillainMode || isVillainOpen(item.key))" class="match-villain-panel" @click.stop="openVillainDetail(item)">
+            <span class="villain-title">反派剧本开演</span>
+            <strong>{{ item.villain.text }}</strong>
+            <span>作案目标：专门不让 {{ item.villain.modelLabel }} 舒服</span>
+            <span>坏人算法：{{ item.villain.label }} 就算计划得逞</span>
+            <span v-if="item.villain.odds">黑账赔率 {{ item.villain.odds.toFixed(2) }}</span>
           </div>
         </article>
       </div>
@@ -174,6 +250,20 @@ function onRowClick(item) {
 }
 
 .bench-line-model .bench-prob b { color: var(--accent); }
+
+.match-row.villain-active .bench-line,
+.match-row.villain-active .bench-line-model {
+  color: #fca5a5;
+}
+
+.match-row.villain-active .bench-name {
+  color: #fecaca;
+}
+
+.match-row.villain-active .bench-prob b,
+.match-row.villain-active .bench-line-model .bench-prob b {
+  color: #f87171;
+}
 
 .bench-na { color: var(--text-faint); }
 </style>
