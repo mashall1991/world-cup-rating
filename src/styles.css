@@ -26,6 +26,19 @@
   --radius-sm: 8px;
   --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei",
     -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* 反派模式：表面沿用全站「转播级」深海军蓝，只叠红色强调，避免黑红割裂。
+     反派始终走暗色(与原黑红模式一致,只是换成同源的蓝),因此用固定值而非随主题翻转。 */
+  --villain-accent: #f87171;
+  --villain-line: rgba(248, 113, 113, 0.42);
+  --villain-line-soft: rgba(248, 113, 113, 0.24);
+  --villain-glow: rgba(248, 113, 113, 0.3);
+  --villain-wash: rgba(248, 113, 113, 0.12);
+  --villain-wash-strong: rgba(248, 113, 113, 0.2);
+  --villain-surface: #111b2e;
+  --villain-surface-soft: #16223a;
+  --villain-ink: #f1f5fb;
+  --villain-ink-soft: #9fb0c8;
 }
 
 :root[data-time-theme="day"] {
@@ -134,14 +147,14 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   flex-wrap: wrap;
   padding: 30px clamp(14px, 2.6vw, 26px) 18px;
   overflow: hidden;
-  border: 1px solid rgba(248, 113, 113, 0.22);
+  border: 1px solid var(--villain-line-soft);
   border-radius: var(--radius-md);
   background:
-    radial-gradient(520px 180px at 18% 12%, rgba(248, 113, 113, 0.2), transparent 65%),
-    linear-gradient(180deg, rgba(24, 7, 12, 0.97), rgba(16, 7, 11, 0.92));
+    radial-gradient(520px 180px at 18% 12%, var(--villain-wash-strong), transparent 65%),
+    var(--villain-surface);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 14px 36px rgba(38, 6, 12, 0.28);
+    var(--shadow);
 }
 
 .topbar::before {
@@ -151,7 +164,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   z-index: -1;
   pointer-events: none;
   background:
-    linear-gradient(115deg, transparent 0 36%, rgba(248, 113, 113, 0.08) 44%, transparent 52% 100%),
+    linear-gradient(115deg, transparent 0 36%, var(--villain-wash) 44%, transparent 52% 100%),
     repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 6px);
   opacity: 0.4;
 }
@@ -169,13 +182,13 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   place-items: center;
   border-radius: 16px;
   background:
-    radial-gradient(circle at 35% 30%, rgba(248, 113, 113, 0.34), transparent 42%),
-    linear-gradient(145deg, rgba(59, 7, 17, 0.92), rgba(20, 6, 9, 0.9) 58%, rgba(5, 3, 5, 0.9));
-  border: 1px solid rgba(248, 113, 113, 0.42);
+    radial-gradient(circle at 35% 30%, var(--villain-wash-strong), transparent 42%),
+    var(--villain-surface-soft);
+  border: 1px solid var(--villain-line);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 0 0 1px rgba(127, 29, 29, 0.16),
-    0 14px 34px rgba(127, 29, 29, 0.36);
+    0 0 0 1px var(--villain-line-soft),
+    0 10px 24px var(--villain-glow);
 }
 
 .brand-mark::after {
@@ -184,9 +197,9 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   inset: -7px;
   z-index: -1;
   border-radius: 20px;
-  background: radial-gradient(circle, rgba(248, 113, 113, 0.32), transparent 65%);
+  background: radial-gradient(circle, var(--villain-glow), transparent 65%);
   filter: blur(5px);
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .brand-title {
@@ -196,30 +209,28 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   font-size: clamp(24px, 3.6vw, 36px);
   line-height: 0.92;
   letter-spacing: 0;
-  color: #fff7ed;
-  text-shadow:
-    0 0 14px rgba(248, 113, 113, 0.35),
-    0 2px 0 rgba(127, 29, 29, 0.52);
+  color: var(--villain-ink);
+  text-shadow: 0 0 14px var(--villain-glow);
 }
 
 .brand-title span:last-child {
-  color: #fca5a5;
+  color: var(--villain-accent);
 }
 
 .app-nav {
   display: flex;
   gap: 4px;
   padding: 4px;
-  background: rgba(15, 6, 10, 0.66);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: var(--villain-surface-soft);
+  border: 1px solid var(--villain-line-soft);
   border-radius: 999px;
-  box-shadow: inset 0 0 22px rgba(127, 29, 29, 0.16);
+  box-shadow: inset 0 0 18px var(--villain-wash);
 }
 
 .app-nav button {
   border: 0;
   background: transparent;
-  color: #d9a8ad;
+  color: var(--villain-ink-soft);
   font-size: 14px;
   font-weight: 600;
   padding: 8px 22px;
@@ -228,9 +239,9 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 }
 
 .app-nav button.active {
-  background: linear-gradient(135deg, rgba(185, 28, 28, 0.8), rgba(69, 10, 10, 0.86));
-  color: #fff7ed;
-  box-shadow: 0 0 16px rgba(248, 113, 113, 0.22);
+  background: linear-gradient(135deg, #f05656, #b91c1c);
+  color: #fff;
+  box-shadow: 0 0 14px var(--villain-glow);
 }
 
 /* ---------- 筛选控件 ---------- */
@@ -316,7 +327,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 .live-match-card.villain-active {
   background:
     linear-gradient(140deg, rgba(248, 113, 113, 0.15), rgba(17, 24, 39, 0.1) 60%),
-    #130b10;
+    #0e1626;
   border-color: rgba(248, 113, 113, 0.56);
   animation: villain-darken 520ms ease-out both;
 }
@@ -517,7 +528,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   flex: none;
   border: 1px solid rgba(248, 113, 113, 0.42);
   border-radius: 999px;
-  background: rgba(24, 10, 14, 0.82);
+  background: rgba(18, 28, 47, 0.82);
   color: #fecaca;
   font-size: 11px;
   font-weight: 800;
@@ -529,7 +540,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 .villain-toggle:hover,
 .villain-toggle.active {
   color: #fff;
-  background: linear-gradient(135deg, rgba(185, 28, 28, 0.88), rgba(69, 10, 10, 0.92));
+  background: linear-gradient(135deg, rgba(185, 28, 28, 0.88), rgba(27, 42, 71, 0.92));
   border-color: rgba(252, 165, 165, 0.72);
   animation: villain-button-darken 420ms ease-out both;
 }
@@ -549,7 +560,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   border: 1px solid rgba(252, 165, 165, 0.78);
   background: linear-gradient(135deg, #991b1b, #1f0a0d);
   color: #fff;
-  box-shadow: 0 8px 18px rgba(69, 10, 10, 0.35);
+  box-shadow: 0 8px 18px rgba(27, 42, 71, 0.35);
   font-size: 11px;
   font-weight: 900;
   line-height: 1;
@@ -565,7 +576,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   gap: 4px;
   min-width: 0;
   color: #fecaca;
-  background: linear-gradient(135deg, rgba(69, 10, 10, 0.82), rgba(12, 10, 14, 0.96));
+  background: linear-gradient(135deg, rgba(27, 42, 71, 0.82), rgba(10, 16, 30, 0.96));
   border: 1px solid rgba(248, 113, 113, 0.46);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
@@ -604,7 +615,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   100% {
     background:
       linear-gradient(140deg, rgba(248, 113, 113, 0.15), rgba(17, 24, 39, 0.1) 60%),
-      #130b10;
+      #0e1626;
     border-color: rgba(248, 113, 113, 0.56);
     box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.08);
   }
@@ -707,10 +718,10 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   border-color: rgba(248, 113, 113, 0.32);
   background:
     radial-gradient(360px 150px at 18% 0%, rgba(248, 113, 113, 0.18), transparent 68%),
-    linear-gradient(180deg, rgba(24, 7, 12, 0.98), rgba(12, 6, 10, 0.96));
+    linear-gradient(180deg, rgba(18, 28, 47, 0.98), rgba(10, 16, 30, 0.96));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 18px 46px rgba(38, 6, 12, 0.26);
+    0 18px 46px rgba(2, 8, 20, 0.26);
 }
 
 .team-panel.villain-ranking-panel::before {
@@ -754,7 +765,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 .villain-ranking-toggle {
   border: 1px solid rgba(248, 113, 113, 0.42);
   border-radius: 999px;
-  background: rgba(24, 10, 14, 0.82);
+  background: rgba(18, 28, 47, 0.82);
   color: #fecaca;
   font-size: 11px;
   font-weight: 850;
@@ -766,7 +777,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 .villain-ranking-toggle:hover,
 .villain-ranking-toggle.active {
   color: #fff7ed;
-  background: linear-gradient(135deg, rgba(185, 28, 28, 0.9), rgba(69, 10, 10, 0.94));
+  background: linear-gradient(135deg, rgba(185, 28, 28, 0.9), rgba(27, 42, 71, 0.94));
   border-color: rgba(252, 165, 165, 0.72);
   box-shadow: 0 0 14px rgba(248, 113, 113, 0.22);
 }
@@ -784,7 +795,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 
 .villain-ranking-panel .count-pill {
   color: #fecaca;
-  background: rgba(69, 10, 10, 0.58);
+  background: rgba(27, 42, 71, 0.58);
   border-color: rgba(248, 113, 113, 0.28);
 }
 
@@ -836,24 +847,24 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 }
 
 .villain-ranking-panel .team-button {
-  background: rgba(15, 6, 10, 0.48);
+  background: rgba(14, 22, 38, 0.48);
   border-color: rgba(248, 113, 113, 0.08);
 }
 
 .villain-ranking-panel .team-button:hover {
   background:
-    linear-gradient(135deg, rgba(127, 29, 29, 0.24), rgba(24, 7, 12, 0.78));
+    linear-gradient(135deg, rgba(2, 8, 20, 0.24), rgba(18, 28, 47, 0.78));
   border-color: rgba(248, 113, 113, 0.3);
 }
 
 .villain-ranking-panel .team-button.active {
   background:
     radial-gradient(220px 80px at 85% 50%, rgba(248, 113, 113, 0.2), transparent 70%),
-    linear-gradient(135deg, rgba(127, 29, 29, 0.42), rgba(24, 7, 12, 0.9));
+    linear-gradient(135deg, rgba(2, 8, 20, 0.42), rgba(18, 28, 47, 0.9));
   border-color: rgba(252, 165, 165, 0.52);
   box-shadow:
     inset 0 0 0 1px rgba(248, 113, 113, 0.12),
-    0 10px 24px rgba(69, 10, 10, 0.24);
+    0 10px 24px rgba(27, 42, 71, 0.24);
 }
 
 .team-rank {
@@ -949,10 +960,10 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
   border-color: rgba(248, 113, 113, 0.3);
   background:
     radial-gradient(520px 180px at 15% 0%, rgba(248, 113, 113, 0.16), transparent 68%),
-    linear-gradient(180deg, rgba(24, 7, 12, 0.98), rgba(12, 6, 10, 0.96));
+    linear-gradient(180deg, rgba(18, 28, 47, 0.98), rgba(10, 16, 30, 0.96));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 18px 46px rgba(38, 6, 12, 0.24);
+    0 18px 46px rgba(2, 8, 20, 0.24);
 }
 
 .detail-panel.evil-detail::before {
@@ -986,12 +997,12 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 .evil-detail .score-band {
   background:
     radial-gradient(260px 100px at 82% 16%, rgba(248, 113, 113, 0.26), transparent 70%),
-    linear-gradient(135deg, rgba(127, 29, 29, 0.38), rgba(12, 6, 10, 0.82)),
+    linear-gradient(135deg, rgba(2, 8, 20, 0.38), rgba(10, 16, 30, 0.82)),
     linear-gradient(120deg, color-mix(in srgb, var(--badge-color, #1f7a4d) 12%, transparent), transparent 55%);
   border-color: rgba(248, 113, 113, 0.48);
   box-shadow:
     inset 0 0 0 1px rgba(248, 113, 113, 0.1),
-    0 12px 32px rgba(69, 10, 10, 0.24);
+    0 12px 32px rgba(27, 42, 71, 0.24);
 }
 
 .team-identity { display: flex; align-items: center; gap: 16px; min-width: 0; }
@@ -1011,7 +1022,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 .evil-detail .team-badge {
   background:
     radial-gradient(circle at 36% 28%, rgba(248, 113, 113, 0.26), transparent 48%),
-    rgba(15, 6, 10, 0.72);
+    rgba(14, 22, 38, 0.72);
   border-color: rgba(248, 113, 113, 0.36);
   box-shadow: 0 0 18px rgba(248, 113, 113, 0.16);
 }
@@ -1046,14 +1057,14 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 
 .evil-detail .rank-pill {
   border-color: rgba(248, 113, 113, 0.5);
-  background: rgba(69, 10, 10, 0.58);
+  background: rgba(27, 42, 71, 0.58);
   color: #fecaca;
 }
 
 :root[data-time-theme="day"] .team-badge { background: rgba(255, 250, 243, 0.78); }
 :root[data-time-theme="day"] .rank-pill { background: rgba(255, 250, 243, 0.82); }
 :root[data-time-theme="day"] .evil-detail .rank-pill {
-  background: rgba(69, 10, 10, 0.72);
+  background: rgba(27, 42, 71, 0.72);
   color: #fee2e2;
 }
 
@@ -1096,7 +1107,7 @@ h1, h2, h3 { color: var(--text-strong); margin: 0; }
 
 .evil-detail .metric-tile {
   background:
-    linear-gradient(135deg, rgba(127, 29, 29, 0.2), rgba(15, 6, 10, 0.7));
+    linear-gradient(135deg, rgba(2, 8, 20, 0.2), rgba(14, 22, 38, 0.7));
   border-color: rgba(248, 113, 113, 0.22);
 }
 
@@ -1165,7 +1176,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 }
 
 .evil-detail .bar-track {
-  background: rgba(69, 10, 10, 0.68);
+  background: rgba(27, 42, 71, 0.68);
   box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.14);
 }
 
@@ -1270,7 +1281,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .evil-detail .chart-section,
 .evil-detail .squad-section {
   background:
-    linear-gradient(135deg, rgba(69, 10, 10, 0.28), rgba(15, 6, 10, 0.72));
+    linear-gradient(135deg, rgba(27, 42, 71, 0.28), rgba(14, 22, 38, 0.72));
   border-color: rgba(248, 113, 113, 0.22);
   box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.04);
 }
@@ -1287,7 +1298,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
   border-color: rgba(248, 113, 113, 0.34);
   background:
     radial-gradient(260px 100px at 92% 0%, rgba(248, 113, 113, 0.18), transparent 72%),
-    linear-gradient(135deg, rgba(127, 29, 29, 0.34), rgba(15, 6, 10, 0.78));
+    linear-gradient(135deg, rgba(2, 8, 20, 0.34), rgba(14, 22, 38, 0.78));
 }
 
 .evil-section .section-heading h3 {
@@ -1340,7 +1351,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 }
 
 .evil-detail .age-box {
-  background: rgba(15, 6, 10, 0.62);
+  background: rgba(14, 22, 38, 0.62);
   border-color: rgba(248, 113, 113, 0.18);
 }
 
@@ -1386,7 +1397,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
   border-bottom-color: rgba(248, 113, 113, 0.1);
 }
 .evil-detail .player-table tr:hover td {
-  background: rgba(127, 29, 29, 0.18);
+  background: rgba(2, 8, 20, 0.18);
 }
 
 .player-table td.num {
@@ -1614,7 +1625,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .schedule-villain-mode {
   border: 1px solid rgba(248, 113, 113, 0.42);
   border-radius: 999px;
-  background: rgba(24, 10, 14, 0.82);
+  background: rgba(18, 28, 47, 0.82);
   color: #fecaca;
   font-size: 13px;
   font-weight: 850;
@@ -1626,7 +1637,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .schedule-villain-mode:hover,
 .schedule-villain-mode.active {
   color: #fff7ed;
-  background: linear-gradient(135deg, rgba(185, 28, 28, 0.9), rgba(69, 10, 10, 0.94));
+  background: linear-gradient(135deg, rgba(185, 28, 28, 0.9), rgba(27, 42, 71, 0.94));
   border-color: rgba(252, 165, 165, 0.72);
   box-shadow: 0 0 18px rgba(248, 113, 113, 0.24);
 }
@@ -1665,7 +1676,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .match-row.clickable:hover { border-color: var(--border-strong); transform: translateY(-1px); }
 
 .match-row.missed {
-  background: linear-gradient(135deg, rgba(248, 113, 113, 0.16), rgba(127, 29, 29, 0.12));
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.16), rgba(2, 8, 20, 0.12));
   border-color: rgba(248, 113, 113, 0.5);
   box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.14);
 }
@@ -1677,12 +1688,12 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .match-row.villain-active {
   background:
     radial-gradient(420px 160px at 8% 0%, rgba(248, 113, 113, 0.22), transparent 70%),
-    linear-gradient(140deg, rgba(127, 29, 29, 0.34), rgba(18, 8, 12, 0.92) 58%),
-    #14080d;
+    linear-gradient(140deg, rgba(2, 8, 20, 0.34), rgba(12, 18, 32, 0.92) 58%),
+    #0e1626;
   border-color: rgba(248, 113, 113, 0.58);
   box-shadow:
     inset 0 0 0 1px rgba(248, 113, 113, 0.08),
-    0 14px 28px rgba(69, 10, 10, 0.18);
+    0 14px 28px rgba(27, 42, 71, 0.18);
   animation: villain-darken-row 520ms ease-out both;
 }
 
@@ -1711,7 +1722,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 
 .match-row.villain-active .match-pill {
   color: #fee2e2;
-  background: rgba(69, 10, 10, 0.62);
+  background: rgba(27, 42, 71, 0.62);
   border-color: rgba(248, 113, 113, 0.28);
 }
 
@@ -1720,7 +1731,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .match-row.villain-active.missed .match-pill-success,
 .match-row.villain-active.missed .match-pill-villain {
   color: #fff7ed;
-  background: linear-gradient(135deg, rgba(185, 28, 28, 0.86), rgba(69, 10, 10, 0.92));
+  background: linear-gradient(135deg, rgba(185, 28, 28, 0.86), rgba(27, 42, 71, 0.92));
   border-color: rgba(252, 165, 165, 0.56);
 }
 
@@ -1802,13 +1813,13 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .match-pill-villain {
   color: #fecaca;
   border-color: rgba(248, 113, 113, 0.55);
-  background: rgba(69, 10, 10, 0.72);
+  background: rgba(27, 42, 71, 0.72);
 }
 
 .match-row.missed .match-pill-villain {
   color: #fff7ed;
   border-color: rgba(252, 165, 165, 0.62);
-  background: rgba(127, 29, 29, 0.58);
+  background: rgba(2, 8, 20, 0.58);
 }
 
 .match-pill-muted { opacity: 0.7; }
@@ -1832,8 +1843,8 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
   100% {
     background:
       radial-gradient(420px 160px at 8% 0%, rgba(248, 113, 113, 0.22), transparent 70%),
-      linear-gradient(140deg, rgba(127, 29, 29, 0.34), rgba(18, 8, 12, 0.92) 58%),
-      #14080d;
+      linear-gradient(140deg, rgba(2, 8, 20, 0.34), rgba(12, 18, 32, 0.92) 58%),
+      #0e1626;
     border-color: rgba(248, 113, 113, 0.58);
   }
 }
@@ -2344,10 +2355,10 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
 .live-stat-villain {
   background:
     radial-gradient(160px 90px at 82% 12%, rgba(248, 113, 113, 0.26), transparent 70%),
-    linear-gradient(145deg, rgba(69, 10, 10, 0.92), rgba(18, 8, 12, 0.96));
+    linear-gradient(145deg, #4a0f12, #160a0e);
   box-shadow:
     inset 0 0 0 1px rgba(248, 113, 113, 0.18),
-    0 10px 22px rgba(69, 10, 10, 0.16);
+    0 10px 22px rgba(40, 8, 10, 0.18);
 }
 
 .live-stat-main::before,
@@ -2453,7 +2464,7 @@ button.link-metric strong { font-size: 15px; color: var(--accent); }
   color: #fca5a5;
   text-shadow:
     0 0 16px rgba(248, 113, 113, 0.42),
-    0 1px 0 rgba(127, 29, 29, 0.6);
+    0 1px 0 rgba(2, 8, 20, 0.6);
 }
 
 .live-stat-card .villain-value small {
