@@ -3,6 +3,8 @@ services:
     name: worldcup-strength
     runtime: node
     plan: starter
+    # 用户主要在亚洲(Asia/Shanghai)，选新加坡区域比默认美西(Oregon)延迟低得多
+    region: singapore
     # npm ci 会先整体删掉 node_modules 再装,避免缓存里损坏的依赖残留
     buildCommand: "npm ci && npm run build"
     startCommand: node server.js

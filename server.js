@@ -8,6 +8,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 
 const PORT = Number(process.env.PORT) || 3000;
 const TOKEN = process.env.API_FOOTBALL_KEY || process.env.APISPORTS_KEY || process.env.API_SPORTS_KEY || "";
@@ -35,6 +36,9 @@ const MIME = {
   ".pdf": "application/pdf",
   ".md": "text/markdown; charset=utf-8"
 };
+
+// 文本类资源走 gzip；体积小、收益大（如 176KB 的 bundle 压缩到 ~64KB）。
+const COMPRESSIBLE = new Set([".html", ".js", ".css", ".json", ".svg", ".md"]);
 
 // 简单的代理响应缓存，减少免费层 API 配额消耗（60 秒）。
 // 比分接口需要贴近实时，带 ts= 的请求不走缓存。
@@ -406,6 +410,7 @@ function handleStatic(req, res, url) {
     return;
   }
 
+  const acceptsGzip = /\bgzip\b/.test(req.headers["accept-encoding"] || "");
   const tryRead = (index) => {
     if (index >= candidates.length) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
@@ -418,8 +423,21 @@ function handleStatic(req, res, url) {
         return;
       }
       const ext = path.extname(candidates[index]).toLowerCase();
-      res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
-      res.end(data);
+      const headers = {
+        "Content-Type": MIME[ext] || "application/octet-stream",
+        // 带 hash 的构建产物可永久缓存；index.html 等始终回源校验。
+        "Cache-Control": pathname.startsWith("/assets/")
+          ? "public, max-age=31536000, immutable"
+          : "no-cache"
+      };
+      let body = data;
+      if (acceptsGzip && COMPRESSIBLE.has(ext)) {
+        body = zlib.gzipSync(data);
+        headers["Content-Encoding"] = "gzip";
+        headers["Vary"] = "Accept-Encoding";
+      }
+      res.writeHead(200, headers);
+      res.end(body);
     });
   };
   tryRead(0);
